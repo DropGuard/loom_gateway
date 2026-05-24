@@ -1,0 +1,33 @@
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: java-gateway
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config:/config:ro
+    environment:
+      - JAVA_OPTS=-XX:+UseZGC -Xms64m -Xmx256m
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/q/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - gateway-net
+
+  # Mock backend for testing
+  mock-backend:
+    image: kennethreitz/httpbin:latest
+    container_name: mock-backend
+    ports:
+      - "8081:80"
+    networks:
+      - gateway-net
+
+networks:
+  gateway-net:
+    driver: bridge

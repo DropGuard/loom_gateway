@@ -1,0 +1,53 @@
+routes:
+  - id: api-users
+    path: /api/users/**
+    methods: [GET, POST, PUT, DELETE]
+    upstream: mock-backend:80
+    auth:
+      type: jwt
+      required: true
+      secret: "${JWT_SECRET:change-me-in-production}"
+    rateLimit:
+      limit: 1000
+      windowMs: 1000
+    circuitBreaker:
+      failureThreshold: 5
+      resetTimeoutMs: 30000
+    cache:
+      enabled: true
+      ttlSeconds: 60
+    gray:
+      trafficPercent: 10
+      grayUpstream: user-service-v2.default.svc.cluster.local:8080
+      headerMatch: ["X-Canary:true"]
+
+  - id: api-public
+    path: /api/public/**
+    methods: [GET]
+    upstream: mock-backend:80
+    auth:
+      type: none
+      required: false
+    rateLimit:
+      limit: 5000
+      windowMs: 1000
+    circuitBreaker:
+      failureThreshold: 10
+      resetTimeoutMs: 15000
+    cache:
+      enabled: true
+      ttlSeconds: 300
+
+  - id: api-key-service
+    path: /api/external/**
+    methods: [GET, POST]
+    upstream: external-service.default.svc.cluster.local:8080
+    auth:
+      type: api-key
+      required: true
+      apiKeys:
+        - "pk-test-key-123"
+        - "pk-production-key-456"
+    rateLimit:
+      limit: 100
+      windowMs: 1000

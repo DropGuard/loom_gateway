@@ -1,0 +1,25 @@
+# Build artifacts
+target/
+!target/quarkus-app/
+
+# Maven cache
+.m2/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Git
+.git/
+.gitignore
+.gitmodules
+
+# Documentation
+*.md
+
+# Config examples
+config/
+
+# CI
+.github/
