@@ -2,6 +2,7 @@ package com.gateway.filter;
 
 import com.gateway.model.RouteConfig;
 import com.gateway.model.RouteConfig.CircuitBreakerConfig;
+import com.gateway.model.RouteConfig.FilterConfig;
 import com.gateway.testutil.MockRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,26 +22,25 @@ class CircuitBreakerFilterTest {
         context = new FilterContext(request, null);
     }
 
+    private RouteConfig routeWithCB(CircuitBreakerConfig cb) {
+        return new RouteConfig("r1", "/**", null, "", FilterConfig.builder().circuitBreaker(cb).build());
+    }
+
     @Test
     void testNoCircuitBreakerConfigPasses() {
-        context.route(new RouteConfig("r1", "/**", null, "", null, null, null, null, null));
+        context.route(new RouteConfig("r1", "/**", null, "", null));
         assertTrue(filter.filter(context).continueChain());
     }
 
     @Test
     void testAllowsRequestsInitially() {
-        RouteConfig route = new RouteConfig("r1", "/**", null, "",
-                null, null, new CircuitBreakerConfig(3, 1000), null, null);
-        context.route(route);
-
+        context.route(routeWithCB(new CircuitBreakerConfig(3, 1000)));
         assertTrue(filter.filter(context).continueChain());
     }
 
     @Test
     void testOpensAfterThreshold() {
-        RouteConfig route = new RouteConfig("r1", "/**", null, "",
-                null, null, new CircuitBreakerConfig(3, 5000), null, null);
-        context.route(route);
+        context.route(routeWithCB(new CircuitBreakerConfig(3, 5000)));
 
         assertTrue(filter.filter(context).continueChain());
 
@@ -55,9 +55,7 @@ class CircuitBreakerFilterTest {
 
     @Test
     void testHalfOpenAfterTimeout() throws InterruptedException {
-        RouteConfig route = new RouteConfig("r1", "/**", null, "",
-                null, null, new CircuitBreakerConfig(2, 200), null, null);
-        context.route(route);
+        context.route(routeWithCB(new CircuitBreakerConfig(2, 200)));
 
         assertTrue(filter.filter(context).continueChain());
 
@@ -75,9 +73,7 @@ class CircuitBreakerFilterTest {
 
     @Test
     void testHalfOpenBackToOpenOnFailure() throws InterruptedException {
-        RouteConfig route = new RouteConfig("r1", "/**", null, "",
-                null, null, new CircuitBreakerConfig(2, 100), null, null);
-        context.route(route);
+        context.route(routeWithCB(new CircuitBreakerConfig(2, 100)));
 
         assertTrue(filter.filter(context).continueChain());
 

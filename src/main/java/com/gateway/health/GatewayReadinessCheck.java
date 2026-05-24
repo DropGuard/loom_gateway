@@ -1,6 +1,6 @@
 package com.gateway.health;
 
-import com.gateway.config.RouteConfigLoader;
+import com.gateway.config.RouteConfigProvider;
 import com.gateway.model.GatewayConfig;
 import org.eclipse.microprofile.health.HealthCheck;
 import org.eclipse.microprofile.health.HealthCheckResponse;
@@ -14,11 +14,11 @@ import jakarta.inject.Singleton;
 public class GatewayReadinessCheck implements HealthCheck {
 
     @Inject
-    RouteConfigLoader routeConfigLoader;
+    RouteConfigProvider routeConfigProvider;
 
     @Override
     public HealthCheckResponse call() {
-        GatewayConfig config = routeConfigLoader.getConfig();
+        GatewayConfig config = routeConfigProvider.getConfig();
         boolean hasRoutes = config.routes() != null && !config.routes().isEmpty();
         return HealthCheckResponse.builder()
                 .name("gateway-ready")

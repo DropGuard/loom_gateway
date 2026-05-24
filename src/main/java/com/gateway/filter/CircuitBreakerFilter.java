@@ -18,13 +18,8 @@ public class CircuitBreakerFilter implements Filter {
     private final Map<String, SimpleCircuitBreaker> breakers = new ConcurrentHashMap<>();
 
     @Override
-    public int order() {
-        return 300; // After RateLimit
-    }
-
-    @Override
     public FilterResult filter(FilterContext context) {
-        CircuitBreakerConfig config = context.route() != null ? context.route().circuitBreaker() : null;
+        CircuitBreakerConfig config = context.filters().circuitBreaker();
         if (config == null || config.failureThreshold() <= 0) {
             return FilterResult.CONTINUE;
         }

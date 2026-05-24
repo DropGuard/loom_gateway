@@ -25,13 +25,8 @@ public class AuthFilter implements Filter {
     private static final Logger LOG = Logger.getLogger(AuthFilter.class);
 
     @Override
-    public int order() {
-        return 100;
-    }
-
-    @Override
     public FilterResult filter(FilterContext context) {
-        AuthConfig auth = context.route() != null ? context.route().auth() : null;
+        AuthConfig auth = context.filters().auth();
         if (auth == null || !auth.required()) {
             return FilterResult.CONTINUE;
         }
@@ -84,7 +79,7 @@ public class AuthFilter implements Filter {
             }
 
             // Pass claims to context for downstream use
-            context.setAttribute("claims", claims.getClaims());
+            context.claims(claims.getClaims());
 
         } catch (ParseException e) {
             return FilterResult.stop(401, "Invalid JWT format");

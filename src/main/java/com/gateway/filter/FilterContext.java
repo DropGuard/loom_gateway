@@ -1,6 +1,7 @@
 package com.gateway.filter;
 
 import com.gateway.model.RouteConfig;
+import com.gateway.model.RouteConfig.FilterConfig;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
 
@@ -15,6 +16,8 @@ public class FilterContext {
     private final HttpServerRequest request;
     private final HttpServerResponse response;
     private RouteConfig route;
+    private String grayUpstream;
+    private Map<String, Object> claims;
     private final Map<String, Object> attributes = new ConcurrentHashMap<>();
 
     public FilterContext(HttpServerRequest request, HttpServerResponse response) {
@@ -47,22 +50,26 @@ public class FilterContext {
         return (T) attributes.get(key);
     }
 
-    public boolean hasAttribute(String key) {
-        return attributes.containsKey(key);
+    public FilterConfig filters() {
+        return route != null ? route.filters() : FilterConfig.EMPTY;
+    }
+
+    public Map<String, Object> claims() {
+        return claims;
+    }
+
+    public void claims(Map<String, Object> claims) {
+        this.claims = claims;
     }
 
     /**
      * Gets the effective upstream, may be overridden by gray release.
      */
     public String effectiveUpstream() {
-        String override = getAttribute("grayUpstream");
-        return override != null ? override : (route() != null ? route().upstream() : null);
+        return grayUpstream != null ? grayUpstream : (route() != null ? route().upstream() : null);
     }
 
-    /**
-     * Sets the target upstream, used by gray release filter.
-     */
     public void targetUpstream(String upstream) {
-        setAttribute("grayUpstream", upstream);
+        this.grayUpstream = upstream;
     }
 }

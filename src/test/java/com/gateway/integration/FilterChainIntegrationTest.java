@@ -5,6 +5,7 @@ import com.gateway.model.RouteConfig;
 import com.gateway.model.RouteConfig.AuthConfig;
 import com.gateway.model.RouteConfig.CacheConfig;
 import com.gateway.model.RouteConfig.CircuitBreakerConfig;
+import com.gateway.model.RouteConfig.FilterConfig;
 import com.gateway.model.RouteConfig.GrayConfig;
 import com.gateway.model.RouteConfig.RateLimitConfig;
 import com.gateway.testutil.MockRequest;
@@ -21,10 +22,6 @@ import java.util.Date;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * Integration tests for the full filter chain execution.
- * Tests multiple filters interacting together, not in isolation.
- */
 class FilterChainIntegrationTest {
 
     private static final String JWT_SECRET = "this-is-a-test-secret-key-that-is-at-least-32-chars!";
@@ -45,11 +42,12 @@ class FilterChainIntegrationTest {
     @Test
     void testAuthBlocksBeforeRateLimit() throws Exception {
         RouteConfig route = new RouteConfig("r1", "/**", null, "backend:8080",
-                new AuthConfig("jwt", true, JWT_SECRET, null),
-                new RateLimitConfig(1000, 1000), null, null, null);
+                FilterConfig.builder()
+                        .auth(new AuthConfig("jwt", true, JWT_SECRET, null))
+                        .rateLimit(new RateLimitConfig(1000, 1000))
+                        .build());
         FilterContext ctx = newTestContext(route);
 
-        // No auth header -> should be blocked by AuthFilter
         FilterResult authResult = authFilter.filter(ctx);
         assertFalse(authResult.continueChain());
         assertEquals(401, authResult.statusCode());
@@ -65,7 +63,7 @@ class FilterChainIntegrationTest {
         FilterContext ctx = new FilterContext(req, null);
 
         RouteConfig route = new RouteConfig("r1", "/**", null, "backend:8080",
-                null, null, null, new CacheConfig(true, 60), null);
+                FilterConfig.builder().cache(new CacheConfig(true, 60)).build());
         ctx.route(route);
 
         assertTrue(cacheFilter.filter(ctx).continueChain());
@@ -74,7 +72,7 @@ class FilterChainIntegrationTest {
     @Test
     void testCircuitBreakerBlocksAfterFailures() {
         RouteConfig route = new RouteConfig("r1", "/**", null, "backend:8080",
-                null, null, new CircuitBreakerConfig(3, 5000), null, null);
+                FilterConfig.builder().circuitBreaker(new CircuitBreakerConfig(3, 5000)).build());
         FilterContext ctx = newTestContext(route);
 
         assertTrue(circuitBreakerFilter.filter(ctx).continueChain());
@@ -91,9 +89,11 @@ class FilterChainIntegrationTest {
     @Test
     void testGrayReleaseChangesUpstream() {
         RouteConfig route = new RouteConfig("r1", "/**", null, "backend:8080",
-                null, null, null, null, new GrayConfig(100, "gray-backend:8080", null));
+                FilterConfig.builder()
+                        .gray(new GrayConfig(100, "gray-backend:8080", null))
+                        .build());
         FilterContext ctx = newTestContext(route);
-        ctx.setAttribute("claims", java.util.Map.of("sub", (Object) "user-1"));
+        ctx.claims(java.util.Map.of("sub", (Object) "user-1"));
 
         assertTrue(authFilter.filter(ctx).continueChain());
 
@@ -111,10 +111,13 @@ class FilterChainIntegrationTest {
         FilterContext ctx = new FilterContext(req, null);
 
         RouteConfig route = new RouteConfig("r1", "/api/data", null, "backend:8080",
-                new AuthConfig("jwt", true, JWT_SECRET, null),
-                new RateLimitConfig(100, 1000),
-                new CircuitBreakerConfig(5, 5000), new CacheConfig(true, 60),
-                new GrayConfig(0, null, null));
+                FilterConfig.builder()
+                        .auth(new AuthConfig("jwt", true, JWT_SECRET, null))
+                        .rateLimit(new RateLimitConfig(100, 1000))
+                        .circuitBreaker(new CircuitBreakerConfig(5, 5000))
+                        .cache(new CacheConfig(true, 60))
+                        .gray(new GrayConfig(0, null, null))
+                        .build());
         ctx.route(route);
 
         assertTrue(authFilter.filter(ctx).continueChain());

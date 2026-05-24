@@ -1,30 +1,17 @@
 package com.gateway.integration;
 
-import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
-import io.quarkus.test.junit.QuarkusTestProfile;
-import io.quarkus.test.junit.TestProfile;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.restassured.RestAssured;
 import org.junit.jupiter.api.Test;
 
-import java.util.Map;
-
 import static org.hamcrest.Matchers.*;
 
 @QuarkusTest
-@TestProfile(GatewayHttpIntegrationTest.TestProfile.class)
 @QuarkusTestResource(MockBackendResource.class)
 class GatewayHttpIntegrationTest {
 
     private static final String JWT_SECRET = "this-is-a-test-secret-key-that-is-at-least-32-chars!";
-
-    public static class TestProfile implements QuarkusTestProfile {
-        @Override
-        public Map<String, String> getConfigOverrides() {
-            return Map.of("gateway.config.path", "src/test/resources/routes-test.yaml");
-        }
-    }
 
     // ---- Route matching ----
 
@@ -183,6 +170,17 @@ class GatewayHttpIntegrationTest {
                 .body("status", equalTo("UP"));
     }
 
+    // ---- Metrics ----
+
+    @Test
+    void metrics_prometheusEndpointAvailable() {
+        RestAssured.given()
+                .get("/q/metrics")
+                .then()
+                .statusCode(200)
+                .contentType(containsString("openmetrics-text"));
+    }
+
     @Test
     void readiness_upWhenRoutesLoaded() {
         RestAssured.given()
@@ -191,6 +189,74 @@ class GatewayHttpIntegrationTest {
                 .statusCode(200)
                 .body("status", equalTo("UP"))
                 .body("checks.find { it.name == 'gateway-ready' }.data.routes", greaterThan(0));
+    }
+
+    // ---- X-User-Id injection ----
+
+    @Test
+    void jwtRoute_injectsUserIdHeader() throws Exception {
+        String token = buildJwt("user-42", false);
+        RestAssured.given()
+                .header("Authorization", "Bearer " + token)
+                .get("/api/users/me")
+                .then()
+                .statusCode(200)
+                .body("userId", equalTo("user-42"));
+    }
+
+    @Test
+    void jwtRoute_stripsForgedUserIdHeader() throws Exception {
+        String token = buildJwt("real-user", false);
+        RestAssured.given()
+                .header("Authorization", "Bearer " + token)
+                .header("X-User-Id", "forged-admin")
+                .get("/api/users/me")
+                .then()
+                .statusCode(200)
+                .body("userId", equalTo("real-user"));
+    }
+
+    // ---- Rate limiting ----
+
+    @Test
+    void rateLimit_blocksAfterExceeding() {
+        for (int i = 0; i < 3; i++) {
+            RestAssured.given()
+                    .get("/api/limited/data")
+                    .then()
+                    .statusCode(200);
+        }
+
+        RestAssured.given()
+                .get("/api/limited/data")
+                .then()
+                .statusCode(429);
+    }
+
+    // ---- CORS ----
+
+    @Test
+    void cors_simpleRequest_returnsAllowOrigin() {
+        RestAssured.given()
+                .header("Origin", "http://example.com")
+                .get("/api/public/data")
+                .then()
+                .statusCode(200)
+                .header("Access-Control-Allow-Origin", "http://example.com");
+    }
+
+    @Test
+    void cors_preflight_returnsCorrectHeaders() {
+        RestAssured.given()
+                .header("Origin", "http://example.com")
+                .header("Access-Control-Request-Method", "POST")
+                .header("Access-Control-Request-Headers", "Authorization")
+                .options("/api/users/me")
+                .then()
+                .statusCode(200)
+                .header("Access-Control-Allow-Origin", "http://example.com")
+                .header("Access-Control-Allow-Methods", containsString("POST"))
+                .header("Access-Control-Allow-Headers", containsString("Authorization"));
     }
 
     // ---- Helper ----

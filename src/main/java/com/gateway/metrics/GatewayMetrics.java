@@ -19,6 +19,7 @@ public class GatewayMetrics {
     private final MeterRegistry registry;
     private final Timer requestDuration;
     private final AtomicInteger activeConnCount = new AtomicInteger(0);
+    private final AtomicInteger activeWsConnCount = new AtomicInteger(0);
     private final ConcurrentHashMap<String, Counter> statusCounters = new ConcurrentHashMap<>();
 
     public GatewayMetrics(MeterRegistry registry) {
@@ -26,6 +27,10 @@ public class GatewayMetrics {
 
         Gauge.builder("gateway_active_connections", activeConnCount, AtomicInteger::get)
                 .description("Current number of active connections")
+                .register(registry);
+
+        Gauge.builder("gateway_websocket_active_connections", activeWsConnCount, AtomicInteger::get)
+                .description("Current number of active WebSocket connections")
                 .register(registry);
 
         this.requestDuration = Timer.builder("gateway_request_duration_seconds")
@@ -40,6 +45,14 @@ public class GatewayMetrics {
 
     public void decrementActiveConnections() {
         activeConnCount.decrementAndGet();
+    }
+
+    public void incrementWsConnections() {
+        activeWsConnCount.incrementAndGet();
+    }
+
+    public void decrementWsConnections() {
+        activeWsConnCount.decrementAndGet();
     }
 
     public void recordRequest(String route, int statusCode, Duration duration) {

@@ -3,13 +3,10 @@ package com.gateway.integration;
 import io.quarkus.test.common.QuarkusTestResourceLifecycleManager;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpServer;
+import io.vertx.core.json.JsonObject;
 
 import java.util.Map;
 
-/**
- * Starts a mock HTTP backend for integration tests.
- * Managed by Quarkus test lifecycle — starts before the app, stops after.
- */
 public class MockBackendResource implements QuarkusTestResourceLifecycleManager {
 
     private Vertx vertx;
@@ -19,34 +16,36 @@ public class MockBackendResource implements QuarkusTestResourceLifecycleManager 
     public Map<String, String> start() {
         vertx = Vertx.vertx();
         server = vertx.createHttpServer()
+                .webSocketHandler(ws -> {
+                    if (ws.path().startsWith("/ws/")) {
+                        ws.textMessageHandler(msg -> ws.writeTextMessage("echo:" + msg));
+                        ws.binaryMessageHandler(buf -> ws.writeBinaryMessage(buf));
+                    } else {
+                        ws.reject(404);
+                    }
+                })
                 .requestHandler(req -> {
                     String path = req.path();
                     if ("/health".equals(path)) {
                         req.response().setStatusCode(200).end("OK");
                     } else if (path.startsWith("/api/users")) {
-                        String auth = req.getHeader("Authorization");
-                        if (auth == null || !auth.startsWith("Bearer ")) {
-                            req.response().setStatusCode(401).end("Unauthorized");
-                            return;
-                        }
-                        req.response()
-                                .putHeader("Content-Type", "application/json")
-                                .end("{\"user\":\"test\",\"path\":\"" + path + "\"}");
+                        JsonObject json = new JsonObject()
+                                .put("user", "test")
+                                .put("path", path);
+                        String userId = req.getHeader("X-User-Id");
+                        if (userId != null) json.put("userId", userId);
+                        json(req, json);
                     } else if (path.startsWith("/api/public")) {
-                        req.response()
-                                .putHeader("Content-Type", "application/json")
-                                .end("{\"public\":true}");
+                        json(req, new JsonObject().put("public", true));
                     } else if (path.startsWith("/api/external")) {
-                        req.response()
-                                .putHeader("Content-Type", "application/json")
-                                .end("{\"external\":true}");
+                        json(req, new JsonObject().put("external", true));
                     } else if (path.startsWith("/api/echo")) {
                         req.bodyHandler(body -> {
                             int len = body != null ? body.length() : 0;
-                            req.response()
-                                    .putHeader("Content-Type", "application/json")
-                                    .end("{\"receivedBytes\":" + len + "}");
+                            json(req, new JsonObject().put("receivedBytes", len));
                         });
+                    } else if (path.startsWith("/api/limited")) {
+                        json(req, new JsonObject().put("limited", true));
                     } else if (path.startsWith("/api/fail")) {
                         req.response().setStatusCode(500).end("Internal Server Error");
                     } else {
@@ -59,7 +58,13 @@ public class MockBackendResource implements QuarkusTestResourceLifecycleManager 
                 .join();
 
         System.out.println("[MockBackend] Started on port 19999");
-        return Map.of(); // no extra config needed
+        return Map.of();
+    }
+
+    private static void json(io.vertx.core.http.HttpServerRequest req, JsonObject body) {
+        req.response()
+                .putHeader("Content-Type", "application/json")
+                .end(body.encode());
     }
 
     @Override

@@ -12,13 +12,8 @@ public class GrayReleaseFilter implements Filter {
     private static final Logger LOG = Logger.getLogger(GrayReleaseFilter.class);
 
     @Override
-    public int order() {
-        return 400;
-    }
-
-    @Override
     public FilterResult filter(FilterContext context) {
-        GrayConfig gray = context.route() != null ? context.route().gray() : null;
+        GrayConfig gray = context.filters().gray();
         if (gray == null || gray.grayUpstream() == null) {
             return FilterResult.CONTINUE;
         }
@@ -65,9 +60,8 @@ public class GrayReleaseFilter implements Filter {
         return bucket < threshold;
     }
 
-    @SuppressWarnings("unchecked")
     private String resolveIdentity(FilterContext context) {
-        Map<String, Object> claims = context.getAttribute("claims");
+        Map<String, Object> claims = context.claims();
         if (claims != null) {
             Object sub = claims.get("sub");
             if (sub != null) {

@@ -31,13 +31,8 @@ public class CacheFilter implements Filter {
     }
 
     @Override
-    public int order() {
-        return 500;
-    }
-
-    @Override
     public FilterResult filter(FilterContext context) {
-        CacheConfig config = context.route() != null ? context.route().cache() : null;
+        CacheConfig config = context.filters().cache();
 
         if (cache == null || config == null || !config.enabled() || config.ttlSeconds() <= 0) {
             return FilterResult.CONTINUE;

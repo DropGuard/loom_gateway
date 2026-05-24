@@ -20,7 +20,7 @@ import java.util.regex.Pattern;
  * Loads routes.yaml on startup and watches for file changes to hot-reload.
  */
 @ApplicationScoped
-public class RouteConfigLoader {
+public class RouteConfigLoader implements RouteConfigProvider {
 
     private static final Logger LOG = Logger.getLogger(RouteConfigLoader.class);
 
@@ -108,7 +108,7 @@ public class RouteConfigLoader {
     /**
      * Apply new configuration and rebuild compiled patterns atomically.
      */
-    private void applyNewConfig(GatewayConfig newConfig) {
+    void applyNewConfig(GatewayConfig newConfig) {
         Map<String, Pattern> newPatterns = new ConcurrentHashMap<>();
         if (newConfig.routes() != null) {
             for (RouteConfig route : newConfig.routes()) {

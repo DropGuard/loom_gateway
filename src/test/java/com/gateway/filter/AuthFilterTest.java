@@ -2,6 +2,7 @@ package com.gateway.filter;
 
 import com.gateway.model.RouteConfig;
 import com.gateway.model.RouteConfig.AuthConfig;
+import com.gateway.model.RouteConfig.FilterConfig;
 import com.gateway.testutil.MockRequest;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
@@ -48,11 +49,13 @@ class AuthFilterTest {
         return jwt.serialize();
     }
 
+    private RouteConfig routeWithAuth(AuthConfig auth) {
+        return new RouteConfig("r1", "/**", null, "", FilterConfig.builder().auth(auth).build());
+    }
+
     @Test
     void testNoAuthRequiredPasses() {
-        AuthConfig auth = new AuthConfig("jwt", false, null, null);
-        context.route(new RouteConfig("r1", "/**", null, "", auth, null, null, null, null));
-
+        context.route(routeWithAuth(new AuthConfig("jwt", false, null, null)));
         assertTrue(filter.filter(context).continueChain());
     }
 
@@ -60,19 +63,16 @@ class AuthFilterTest {
     void testJwtValidToken() throws Exception {
         String token = buildJwt("user-1", false);
         request.headers.put("Authorization", "Bearer " + token);
-
-        AuthConfig auth = new AuthConfig("jwt", true, JWT_SECRET, null);
-        context.route(new RouteConfig("r1", "/**", null, "", auth, null, null, null, null));
+        context.route(routeWithAuth(new AuthConfig("jwt", true, JWT_SECRET, null)));
 
         FilterResult result = filter.filter(context);
         assertTrue(result.continueChain());
-        assertNotNull(context.getAttribute("claims"));
+        assertNotNull(context.claims());
     }
 
     @Test
     void testJwtMissingHeader() {
-        AuthConfig auth = new AuthConfig("jwt", true, JWT_SECRET, null);
-        context.route(new RouteConfig("r1", "/**", null, "", auth, null, null, null, null));
+        context.route(routeWithAuth(new AuthConfig("jwt", true, JWT_SECRET, null)));
 
         FilterResult result = filter.filter(context);
         assertFalse(result.continueChain());
@@ -83,9 +83,7 @@ class AuthFilterTest {
     void testJwtExpiredToken() throws Exception {
         String token = buildJwt("user-1", true);
         request.headers.put("Authorization", "Bearer " + token);
-
-        AuthConfig auth = new AuthConfig("jwt", true, JWT_SECRET, null);
-        context.route(new RouteConfig("r1", "/**", null, "", auth, null, null, null, null));
+        context.route(routeWithAuth(new AuthConfig("jwt", true, JWT_SECRET, null)));
 
         FilterResult result = filter.filter(context);
         assertFalse(result.continueChain());
@@ -95,17 +93,13 @@ class AuthFilterTest {
     @Test
     void testApiKeyValid() {
         request.headers.put("X-API-Key", "valid-key-123");
-
-        AuthConfig auth = new AuthConfig("api-key", true, null, List.of("valid-key-123", "valid-key-456"));
-        context.route(new RouteConfig("r1", "/**", null, "", auth, null, null, null, null));
-
+        context.route(routeWithAuth(new AuthConfig("api-key", true, null, List.of("valid-key-123", "valid-key-456"))));
         assertTrue(filter.filter(context).continueChain());
     }
 
     @Test
     void testApiKeyMissing() {
-        AuthConfig auth = new AuthConfig("api-key", true, null, List.of("valid-key-123"));
-        context.route(new RouteConfig("r1", "/**", null, "", auth, null, null, null, null));
+        context.route(routeWithAuth(new AuthConfig("api-key", true, null, List.of("valid-key-123"))));
 
         FilterResult result = filter.filter(context);
         assertFalse(result.continueChain());
@@ -115,9 +109,7 @@ class AuthFilterTest {
     @Test
     void testApiKeyInvalid() {
         request.headers.put("X-API-Key", "wrong-key");
-
-        AuthConfig auth = new AuthConfig("api-key", true, null, List.of("valid-key-123"));
-        context.route(new RouteConfig("r1", "/**", null, "", auth, null, null, null, null));
+        context.route(routeWithAuth(new AuthConfig("api-key", true, null, List.of("valid-key-123"))));
 
         FilterResult result = filter.filter(context);
         assertFalse(result.continueChain());

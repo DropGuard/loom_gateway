@@ -1,23 +1,23 @@
 package com.gateway.router;
 
 import com.gateway.cache.LocalCacheManager.CacheEntry;
-import com.gateway.config.RouteConfigLoader;
+import com.gateway.config.RouteConfigProvider;
 import com.gateway.filter.CacheFilter;
 import com.gateway.filter.CircuitBreakerFilter;
 import com.gateway.filter.FilterChain;
 import com.gateway.filter.FilterContext;
 import com.gateway.model.RouteConfig;
 import io.quarkus.vertx.web.Route;
+import io.quarkus.vertx.web.RouteFilter;
 import io.smallrye.common.annotation.RunOnVirtualThread;
-import io.smallrye.mutiny.Uni;
 import io.vertx.core.http.HttpMethod;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.mutiny.core.Vertx;
 import io.vertx.mutiny.core.http.HttpClient;
 import io.vertx.mutiny.core.http.HttpClientRequest;
-import io.vertx.mutiny.core.http.HttpClientResponse;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.inject.Named;
 import org.jboss.logging.Logger;
 
 @ApplicationScoped
@@ -25,10 +25,11 @@ public class GatewayRouter {
 
     private static final Logger LOG = Logger.getLogger(GatewayRouter.class);
     private final HttpClient httpClient;
-    private final FilterChain filterChain;
+    private final FilterChain httpFilterChain;
+    private final FilterChain wsFilterChain;
 
     @Inject
-    RouteConfigLoader routeConfigLoader;
+    RouteConfigProvider routeConfigProvider;
 
     @Inject
     CircuitBreakerFilter circuitBreakerFilter;
@@ -36,9 +37,48 @@ public class GatewayRouter {
     @Inject
     CacheFilter cacheFilter;
 
-    public GatewayRouter(Vertx vertx, FilterChain filterChain) {
+    @Inject
+    WebSocketProxyHandler webSocketProxyHandler;
+
+    public GatewayRouter(Vertx vertx,
+                         @Named("http") FilterChain httpFilterChain,
+                         @Named("ws") FilterChain wsFilterChain) {
         this.httpClient = vertx.createHttpClient();
-        this.filterChain = filterChain;
+        this.httpFilterChain = httpFilterChain;
+        this.wsFilterChain = wsFilterChain;
+    }
+
+    @RouteFilter
+    void interceptWebSocket(RoutingContext context) {
+        if (!isWebSocketUpgrade(context.request())) {
+            context.next();
+            return;
+        }
+
+        if (context.request().path().startsWith("/q/")) {
+            context.next();
+            return;
+        }
+
+        RouteConfig matchedRoute = routeConfigProvider.findMatchingRoute(
+                context.request().path(),
+                context.request().method().toString()
+        );
+        if (matchedRoute == null) {
+            context.response().setStatusCode(404).end("No matching route");
+            return;
+        }
+
+        LOG.debugf("Matched route: %s -> %s [WebSocket]", matchedRoute.id(), matchedRoute.upstream());
+
+        FilterContext filterContext = new FilterContext(context.request(), context.response());
+        filterContext.route(matchedRoute);
+
+        if (!wsFilterChain.execute(filterContext)) {
+            return;
+        }
+
+        webSocketProxyHandler.proxy(context, filterContext);
     }
 
     @Route(path = "/*")
@@ -51,7 +91,7 @@ public class GatewayRouter {
 
         String routeId = null;
         try {
-            RouteConfig matchedRoute = routeConfigLoader.findMatchingRoute(
+            RouteConfig matchedRoute = routeConfigProvider.findMatchingRoute(
                 context.request().path(),
                 context.request().method().toString()
             );
@@ -66,7 +106,7 @@ public class GatewayRouter {
             FilterContext filterContext = new FilterContext(context.request(), context.response());
             filterContext.route(matchedRoute);
 
-            if (!filterChain.execute(filterContext)) {
+            if (!httpFilterChain.execute(filterContext)) {
                 return;
             }
 
@@ -131,11 +171,9 @@ public class GatewayRouter {
         LOG.debugf("Forwarding to: %s:%d%s", host, port, uri);
 
         try {
-            // 1. Prepare backend request
             HttpClientRequest backendReq = httpClient.request(method, port, host, uri)
                 .await().indefinitely();
 
-            // Copy headers from client to backend request, strip X-User-Id to prevent spoofing
             incomingReq.headers().forEach(entry -> {
                 String key = entry.getKey();
                 if (!isHopByHopHeader(key)
@@ -145,15 +183,11 @@ public class GatewayRouter {
                 }
             });
 
-            // Inject authenticated user identity for upstream services
-            java.util.Map<String, Object> claims = filterContext.getAttribute("claims");
+            java.util.Map<String, Object> claims = filterContext.claims();
             if (claims != null && claims.get("sub") != null) {
                 backendReq.headers().set("X-User-Id", claims.get("sub").toString());
             }
 
-            // 2. Send request body and pipe response in one reactive chain.
-            //    The .chain() callback runs on the event loop BEFORE response body
-            //    data is processed, so pipeTo can capture the full body stream.
             io.vertx.core.buffer.Buffer body = context.body() != null ? context.body().buffer() : null;
             io.vertx.core.http.HttpServerResponse clientResp = context.response();
 
@@ -194,5 +228,13 @@ public class GatewayRouter {
                  "te", "trailers", "transfer-encoding", "upgrade", "host" -> true;
             default -> false;
         };
+    }
+
+    private static boolean isWebSocketUpgrade(io.vertx.core.http.HttpServerRequest request) {
+        String connection = request.getHeader("Connection");
+        String upgrade = request.getHeader("Upgrade");
+        return connection != null
+                && connection.toLowerCase().contains("upgrade")
+                && "websocket".equalsIgnoreCase(upgrade);
     }
 }

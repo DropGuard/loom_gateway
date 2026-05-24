@@ -18,13 +18,8 @@ public class RateLimitFilter implements Filter {
     private final Map<String, SimpleRateLimiter> limiters = new ConcurrentHashMap<>();
 
     @Override
-    public int order() {
-        return 200; // After Auth
-    }
-
-    @Override
     public FilterResult filter(FilterContext context) {
-        RateLimitConfig config = context.route() != null ? context.route().rateLimit() : null;
+        RateLimitConfig config = context.filters().rateLimit();
         if (config == null || config.limit() <= 0) {
             return FilterResult.CONTINUE;
         }

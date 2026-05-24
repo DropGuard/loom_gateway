@@ -1,6 +1,8 @@
 package com.gateway.filter;
 
 import com.gateway.model.RouteConfig;
+import com.gateway.model.RouteConfig.FilterConfig;
+import com.gateway.model.RouteConfig.GrayConfig;
 import com.gateway.testutil.MockRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,15 +22,17 @@ class GrayReleaseFilterTest {
     }
 
     private RouteConfig grayRoute(double percent, List<String> headerMatch) {
-        return new RouteConfig("r1", "/**", null, "backend:8080", null, null, null, null,
-                new RouteConfig.GrayConfig(percent, "gray-backend:8080", headerMatch));
+        return new RouteConfig("r1", "/**", null, "backend:8080",
+                FilterConfig.builder()
+                        .gray(new GrayConfig(percent, "gray-backend:8080", headerMatch))
+                        .build());
     }
 
     private FilterContext contextWithJwtSub(String sub) {
         MockRequest req = new MockRequest();
         FilterContext ctx = new FilterContext(req, null);
         ctx.route(grayRoute(30, null));
-        ctx.setAttribute("claims", Map.of("sub", (Object) sub));
+        ctx.claims(Map.of("sub", (Object) sub));
         return ctx;
     }
 
@@ -45,7 +49,7 @@ class GrayReleaseFilterTest {
     @Test
     void noGrayConfig_continues() {
         FilterContext ctx = new FilterContext(new MockRequest(), null);
-        ctx.route(new RouteConfig("r1", "/**", null, "backend:8080", null, null, null, null, null));
+        ctx.route(new RouteConfig("r1", "/**", null, "backend:8080", null));
         assertTrue(filter.filter(ctx).continueChain());
         assertEquals("backend:8080", ctx.effectiveUpstream());
     }
@@ -120,7 +124,7 @@ class GrayReleaseFilterTest {
         for (int i = 0; i < total; i++) {
             FilterContext ctx = new FilterContext(new MockRequest(), null);
             ctx.route(route);
-            ctx.setAttribute("claims", Map.of("sub", (Object) ("user-" + i)));
+            ctx.claims(Map.of("sub", (Object) ("user-" + i)));
             filter.filter(ctx);
             if ("gray-backend:8080".equals(ctx.effectiveUpstream())) {
                 grayCount++;
@@ -163,7 +167,7 @@ class GrayReleaseFilterTest {
         req.headers.put("X-API-Key", "some-key");
         FilterContext ctx = new FilterContext(req, null);
         ctx.route(grayRoute(100, null));
-        ctx.setAttribute("claims", Map.of("sub", (Object) "user-jwt"));
+        ctx.claims(Map.of("sub", (Object) "user-jwt"));
 
         filter.filter(ctx);
         boolean withJwt = "gray-backend:8080".equals(ctx.effectiveUpstream());
@@ -172,7 +176,7 @@ class GrayReleaseFilterTest {
         req2.headers.put("X-API-Key", "some-key");
         FilterContext ctx2 = new FilterContext(req2, null);
         ctx2.route(grayRoute(100, null));
-        ctx2.setAttribute("claims", Map.of("sub", (Object) "user-jwt"));
+        ctx2.claims(Map.of("sub", (Object) "user-jwt"));
 
         filter.filter(ctx2);
         boolean withJwt2 = "gray-backend:8080".equals(ctx2.effectiveUpstream());
