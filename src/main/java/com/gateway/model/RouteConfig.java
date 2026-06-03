@@ -1,8 +1,8 @@
 package com.gateway.model;
 
-import java.util.List;
-
 import com.fasterxml.jackson.annotation.JsonProperty;
+
+import java.util.List;
 
 public record RouteConfig(
         String id,
@@ -12,7 +12,8 @@ public record RouteConfig(
         FilterConfig filters) {
 
     public RouteConfig {
-        if (filters == null) filters = FilterConfig.EMPTY;
+        if (filters == null)
+            filters = FilterConfig.EMPTY;
     }
 
     public record FilterConfig(
@@ -35,11 +36,26 @@ public record RouteConfig(
             private CacheConfig cache;
             private GrayConfig gray;
 
-            public Builder auth(AuthConfig auth) { this.auth = auth; return this; }
-            public Builder rateLimit(RateLimitConfig rateLimit) { this.rateLimit = rateLimit; return this; }
-            public Builder circuitBreaker(CircuitBreakerConfig circuitBreaker) { this.circuitBreaker = circuitBreaker; return this; }
-            public Builder cache(CacheConfig cache) { this.cache = cache; return this; }
-            public Builder gray(GrayConfig gray) { this.gray = gray; return this; }
+            public Builder auth(AuthConfig auth) {
+                this.auth = auth;
+                return this;
+            }
+            public Builder rateLimit(RateLimitConfig rateLimit) {
+                this.rateLimit = rateLimit;
+                return this;
+            }
+            public Builder circuitBreaker(CircuitBreakerConfig circuitBreaker) {
+                this.circuitBreaker = circuitBreaker;
+                return this;
+            }
+            public Builder cache(CacheConfig cache) {
+                this.cache = cache;
+                return this;
+            }
+            public Builder gray(GrayConfig gray) {
+                this.gray = gray;
+                return this;
+            }
 
             public FilterConfig build() {
                 return new FilterConfig(auth, rateLimit, circuitBreaker, cache, gray);

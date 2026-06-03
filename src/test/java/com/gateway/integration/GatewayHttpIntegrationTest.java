@@ -1,11 +1,12 @@
 package com.gateway.integration;
 
-import io.quarkus.test.junit.QuarkusTest;
-import io.quarkus.test.common.QuarkusTestResource;
-import io.restassured.RestAssured;
-import org.junit.jupiter.api.Test;
-
 import static org.hamcrest.Matchers.*;
+
+import io.quarkus.test.common.QuarkusTestResource;
+import io.quarkus.test.junit.QuarkusTest;
+import io.restassured.RestAssured;
+
+import org.junit.jupiter.api.Test;
 
 @QuarkusTest
 @QuarkusTestResource(MockBackendResource.class)
@@ -274,8 +275,7 @@ class GatewayHttpIntegrationTest {
 
         var jwt = new com.nimbusds.jwt.SignedJWT(
                 new com.nimbusds.jose.JWSHeader.Builder(com.nimbusds.jose.JWSAlgorithm.HS256).build(),
-                claims
-        );
+                claims);
         jwt.sign(new com.nimbusds.jose.crypto.MACSigner(JWT_SECRET));
         return jwt.serialize();
     }

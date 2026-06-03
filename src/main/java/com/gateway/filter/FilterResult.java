@@ -6,10 +6,9 @@ import io.vertx.core.http.HttpServerResponse;
  * Result of a filter execution.
  */
 public record FilterResult(
-    boolean continueChain,
-    int statusCode,
-    String message
-) {
+        boolean continueChain,
+        int statusCode,
+        String message) {
     /** Continue to next filter */
     public static final FilterResult CONTINUE = new FilterResult(true, 0, null);
 

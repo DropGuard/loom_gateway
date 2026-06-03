@@ -1,10 +1,10 @@
 package com.gateway.health;
 
+import jakarta.inject.Singleton;
+
 import org.eclipse.microprofile.health.HealthCheck;
 import org.eclipse.microprofile.health.HealthCheckResponse;
 import org.eclipse.microprofile.health.Liveness;
-
-import jakarta.inject.Singleton;
 
 @Liveness
 @Singleton

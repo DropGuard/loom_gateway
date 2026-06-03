@@ -1,16 +1,18 @@
 package com.gateway.filter;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import com.gateway.model.RouteConfig;
 import com.gateway.model.RouteConfig.FilterConfig;
 import com.gateway.model.RouteConfig.GrayConfig;
 import com.gateway.testutil.MockRequest;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 class GrayReleaseFilterTest {
 
@@ -44,44 +46,51 @@ class GrayReleaseFilterTest {
         return ctx;
     }
 
+    private void applyFilter(FilterContext ctx) throws Exception {
+        filter.apply(ctx, () -> {
+        });
+    }
+
     // ---- No gray config ----
 
     @Test
-    void noGrayConfig_continues() {
+    void noGrayConfig_continues() throws Exception {
         FilterContext ctx = new FilterContext(new MockRequest(), null);
         ctx.route(new RouteConfig("r1", "/**", null, "backend:8080", null));
-        assertTrue(filter.filter(ctx).continueChain());
+        AtomicBoolean nextCalled = new AtomicBoolean(false);
+        filter.apply(ctx, () -> nextCalled.set(true));
+        assertTrue(nextCalled.get());
         assertEquals("backend:8080", ctx.effectiveUpstream());
     }
 
     // ---- Header match ----
 
     @Test
-    void headerMatch_routesToGray() {
+    void headerMatch_routesToGray() throws Exception {
         MockRequest req = new MockRequest();
         req.headers.put("X-Canary", "true");
         FilterContext ctx = new FilterContext(req, null);
         ctx.route(grayRoute(0, List.of("X-Canary:true")));
 
-        filter.filter(ctx);
+        applyFilter(ctx);
         assertEquals("gray-backend:8080", ctx.effectiveUpstream());
     }
 
     @Test
-    void headerMismatch_staysOnPrimary() {
+    void headerMismatch_staysOnPrimary() throws Exception {
         MockRequest req = new MockRequest();
         req.headers.put("X-Canary", "false");
         FilterContext ctx = new FilterContext(req, null);
         ctx.route(grayRoute(0, List.of("X-Canary:true")));
 
-        filter.filter(ctx);
+        applyFilter(ctx);
         assertEquals("backend:8080", ctx.effectiveUpstream());
     }
 
-    // ---- Deterministic: same identity → same result ----
+    // ---- Deterministic: same identity -> same result ----
 
     @Test
-    void sameJwtSub_alwaysSameDecision() {
+    void sameJwtSub_alwaysSameDecision() throws Exception {
         boolean first = isGray(contextWithJwtSub("user-42"));
         for (int i = 0; i < 100; i++) {
             assertEquals(first, isGray(contextWithJwtSub("user-42")),
@@ -90,7 +99,7 @@ class GrayReleaseFilterTest {
     }
 
     @Test
-    void sameApiKey_alwaysSameDecision() {
+    void sameApiKey_alwaysSameDecision() throws Exception {
         boolean first = isGray(contextWithApiKey("pk-stable-key"));
         for (int i = 0; i < 100; i++) {
             assertEquals(first, isGray(contextWithApiKey("pk-stable-key")),
@@ -98,15 +107,15 @@ class GrayReleaseFilterTest {
         }
     }
 
-    // ---- No identity → never gray ----
+    // ---- No identity -> never gray ----
 
     @Test
-    void noIdentity_neverRoutesToGray() {
+    void noIdentity_neverRoutesToGray() throws Exception {
         RouteConfig route = grayRoute(100, null);
         for (int i = 0; i < 100; i++) {
             FilterContext ctx = new FilterContext(new MockRequest(), null);
             ctx.route(route);
-            filter.filter(ctx);
+            applyFilter(ctx);
             assertEquals("backend:8080", ctx.effectiveUpstream(),
                     "Requests without identity must never route to gray");
         }
@@ -115,7 +124,7 @@ class GrayReleaseFilterTest {
     // ---- Distribution: many identities approximate the configured percent ----
 
     @Test
-    void jwtSub_distributionMatchesPercent() {
+    void jwtSub_distributionMatchesPercent() throws Exception {
         double percent = 30.0;
         RouteConfig route = grayRoute(percent, null);
         int grayCount = 0;
@@ -125,7 +134,7 @@ class GrayReleaseFilterTest {
             FilterContext ctx = new FilterContext(new MockRequest(), null);
             ctx.route(route);
             ctx.claims(Map.of("sub", (Object) ("user-" + i)));
-            filter.filter(ctx);
+            applyFilter(ctx);
             if ("gray-backend:8080".equals(ctx.effectiveUpstream())) {
                 grayCount++;
             }
@@ -137,7 +146,7 @@ class GrayReleaseFilterTest {
     }
 
     @Test
-    void apiKey_distributionMatchesPercent() {
+    void apiKey_distributionMatchesPercent() throws Exception {
         double percent = 50.0;
         RouteConfig route = grayRoute(percent, null);
         int grayCount = 0;
@@ -148,7 +157,7 @@ class GrayReleaseFilterTest {
             req.headers.put("X-API-Key", "key-" + i);
             FilterContext ctx = new FilterContext(req, null);
             ctx.route(route);
-            filter.filter(ctx);
+            applyFilter(ctx);
             if ("gray-backend:8080".equals(ctx.effectiveUpstream())) {
                 grayCount++;
             }
@@ -162,14 +171,14 @@ class GrayReleaseFilterTest {
     // ---- JWT sub takes priority over API Key ----
 
     @Test
-    void jwtSubTakesPriorityOverApiKey() {
+    void jwtSubTakesPriorityOverApiKey() throws Exception {
         MockRequest req = new MockRequest();
         req.headers.put("X-API-Key", "some-key");
         FilterContext ctx = new FilterContext(req, null);
         ctx.route(grayRoute(100, null));
         ctx.claims(Map.of("sub", (Object) "user-jwt"));
 
-        filter.filter(ctx);
+        applyFilter(ctx);
         boolean withJwt = "gray-backend:8080".equals(ctx.effectiveUpstream());
 
         MockRequest req2 = new MockRequest();
@@ -178,14 +187,14 @@ class GrayReleaseFilterTest {
         ctx2.route(grayRoute(100, null));
         ctx2.claims(Map.of("sub", (Object) "user-jwt"));
 
-        filter.filter(ctx2);
+        applyFilter(ctx2);
         boolean withJwt2 = "gray-backend:8080".equals(ctx2.effectiveUpstream());
 
         assertEquals(withJwt, withJwt2, "JWT sub should be the identity when both are present");
     }
 
-    private boolean isGray(FilterContext ctx) {
-        filter.filter(ctx);
+    private boolean isGray(FilterContext ctx) throws Exception {
+        applyFilter(ctx);
         return "gray-backend:8080".equals(ctx.effectiveUpstream());
     }
 }

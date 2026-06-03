@@ -2,47 +2,52 @@ package com.gateway.filter;
 
 import com.gateway.model.RouteConfig.AuthConfig;
 import com.nimbusds.jose.JOSEException;
-import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSVerifier;
 import com.nimbusds.jose.crypto.MACVerifier;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+
 import io.vertx.core.http.HttpServerRequest;
+
 import jakarta.inject.Singleton;
-import org.jboss.logging.Logger;
 
 import java.text.ParseException;
 import java.util.Date;
 import java.util.List;
 
-/**
- * Validates authentication based on route configuration.
- * Supports "jwt" (HMAC signature verification) and "api-key" (header matching).
- */
+import org.jboss.logging.Logger;
+
 @Singleton
 public class AuthFilter implements Filter {
 
     private static final Logger LOG = Logger.getLogger(AuthFilter.class);
 
     @Override
-    public FilterResult filter(FilterContext context) {
+    public void apply(FilterContext context, Next next) throws Exception {
         AuthConfig auth = context.filters().auth();
         if (auth == null || !auth.required()) {
-            return FilterResult.CONTINUE;
+            next.run();
+            return;
         }
 
         String type = auth.type() != null ? auth.type().toLowerCase() : "";
-        return switch (type) {
+        FilterResult result = switch (type) {
             case "jwt" -> validateJwt(context, auth);
             case "api-key" -> validateApiKey(context, auth);
             default -> {
                 LOG.warnf("Unknown auth type '%s' for route '%s'", type, context.route().id());
-                yield FilterResult.CONTINUE;
+                yield FilterResult.stop(403, "Unsupported auth type");
             }
         };
+
+        if (result.continueChain()) {
+            next.run();
+        } else {
+            result.writeResponse(context.response());
+        }
     }
 
-    private FilterResult validateJwt(FilterContext context, AuthConfig auth) {
+    FilterResult validateJwt(FilterContext context, AuthConfig auth) {
         HttpServerRequest request = context.request();
         String authHeader = request.getHeader("Authorization");
 
@@ -68,17 +73,14 @@ public class AuthFilter implements Filter {
             JWTClaimsSet claims = signedJWT.getJWTClaimsSet();
             Date now = new Date();
 
-            // Check expiration
             if (claims.getExpirationTime() != null && now.after(claims.getExpirationTime())) {
                 return FilterResult.stop(401, "JWT Token expired");
             }
 
-            // Check not-before
             if (claims.getNotBeforeTime() != null && now.before(claims.getNotBeforeTime())) {
                 return FilterResult.stop(401, "JWT Token not yet valid");
             }
 
-            // Pass claims to context for downstream use
             context.claims(claims.getClaims());
 
         } catch (ParseException e) {
@@ -91,7 +93,7 @@ public class AuthFilter implements Filter {
         return FilterResult.CONTINUE;
     }
 
-    private FilterResult validateApiKey(FilterContext context, AuthConfig auth) {
+    FilterResult validateApiKey(FilterContext context, AuthConfig auth) {
         HttpServerRequest request = context.request();
         String apiKey = request.getHeader("X-API-Key");
 

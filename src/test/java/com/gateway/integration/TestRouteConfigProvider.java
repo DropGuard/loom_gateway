@@ -4,7 +4,9 @@ import com.gateway.config.RouteConfigProvider;
 import com.gateway.model.GatewayConfig;
 import com.gateway.model.RouteConfig;
 import com.gateway.model.RouteConfig.*;
+
 import io.quarkus.test.Mock;
+
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.util.List;
@@ -23,52 +25,50 @@ public class TestRouteConfigProvider implements RouteConfigProvider {
 
     public TestRouteConfigProvider() {
         List<RouteConfig> routes = List.of(
-            new RouteConfig("api-users", "/api/users/**", List.of("GET", "POST"), "localhost:19999",
-                FilterConfig.builder()
-                    .auth(new AuthConfig("jwt", true, JWT_SECRET, null))
-                    .rateLimit(new RateLimitConfig(100, 1000))
-                    .circuitBreaker(new CircuitBreakerConfig(3, 5000))
-                    .cache(new CacheConfig(true, 60))
-                    .build()),
+                new RouteConfig("api-users", "/api/users/**", List.of("GET", "POST"), "localhost:19999",
+                        FilterConfig.builder()
+                                .auth(new AuthConfig("jwt", true, JWT_SECRET, null))
+                                .rateLimit(new RateLimitConfig(100, 1000))
+                                .circuitBreaker(new CircuitBreakerConfig(3, 5000))
+                                .build()),
 
-            new RouteConfig("api-public", "/api/public/**", List.of("GET"), "localhost:19999",
-                FilterConfig.builder()
-                    .auth(new AuthConfig("none", false, null, null))
-                    .rateLimit(new RateLimitConfig(100, 1000))
-                    .build()),
+                new RouteConfig("api-public", "/api/public/**", List.of("GET"), "localhost:19999",
+                        FilterConfig.builder()
+                                .auth(new AuthConfig("none", false, null, null))
+                                .rateLimit(new RateLimitConfig(100, 1000))
+                                .build()),
 
-            new RouteConfig("api-key-service", "/api/external/**", List.of("GET"), "localhost:19999",
-                FilterConfig.builder()
-                    .auth(new AuthConfig("api-key", true, null, List.of("pk-test-key-123")))
-                    .build()),
+                new RouteConfig("api-key-service", "/api/external/**", List.of("GET"), "localhost:19999",
+                        FilterConfig.builder()
+                                .auth(new AuthConfig("api-key", true, null, List.of("pk-test-key-123")))
+                                .build()),
 
-            new RouteConfig("api-echo", "/api/echo/**", List.of("POST"), "localhost:19999",
-                FilterConfig.builder()
-                    .auth(new AuthConfig("none", false, null, null))
-                    .build()),
+                new RouteConfig("api-echo", "/api/echo/**", List.of("POST"), "localhost:19999",
+                        FilterConfig.builder()
+                                .auth(new AuthConfig("none", false, null, null))
+                                .build()),
 
-            new RouteConfig("api-fail", "/api/fail/**", List.of("GET"), "localhost:19998",
-                FilterConfig.builder()
-                    .auth(new AuthConfig("none", false, null, null))
-                    .circuitBreaker(new CircuitBreakerConfig(3, 1000))
-                    .build()),
+                new RouteConfig("api-fail", "/api/fail/**", List.of("GET"), "localhost:19998",
+                        FilterConfig.builder()
+                                .auth(new AuthConfig("none", false, null, null))
+                                .circuitBreaker(new CircuitBreakerConfig(3, 1000))
+                                .build()),
 
-            new RouteConfig("api-limited", "/api/limited/**", List.of("GET"), "localhost:19999",
-                FilterConfig.builder()
-                    .auth(new AuthConfig("none", false, null, null))
-                    .rateLimit(new RateLimitConfig(3, 10000))
-                    .build()),
+                new RouteConfig("api-limited", "/api/limited/**", List.of("GET"), "localhost:19999",
+                        FilterConfig.builder()
+                                .auth(new AuthConfig("none", false, null, null))
+                                .rateLimit(new RateLimitConfig(3, 10000))
+                                .build()),
 
-            new RouteConfig("ws-chat", "/ws/chat/**", List.of("GET"), "localhost:19999",
-                FilterConfig.builder()
-                    .auth(new AuthConfig("jwt", true, JWT_SECRET, null))
-                    .build()),
+                new RouteConfig("ws-chat", "/ws/chat/**", List.of("GET"), "localhost:19999",
+                        FilterConfig.builder()
+                                .auth(new AuthConfig("jwt", true, JWT_SECRET, null))
+                                .build()),
 
-            new RouteConfig("ws-public", "/ws/public/**", List.of("GET"), "localhost:19999",
-                FilterConfig.builder()
-                    .auth(new AuthConfig("none", false, null, null))
-                    .build())
-        );
+                new RouteConfig("ws-public", "/ws/public/**", List.of("GET"), "localhost:19999",
+                        FilterConfig.builder()
+                                .auth(new AuthConfig("none", false, null, null))
+                                .build()));
 
         this.config = new GatewayConfig(routes);
         for (RouteConfig route : routes) {
@@ -102,9 +102,9 @@ public class TestRouteConfigProvider implements RouteConfigProvider {
             regex = basePath + "(?:/.*)?";
         } else {
             regex = pathPattern
-                .replace("**", "__DOUBLESTAR__")
-                .replace("*", "[^/]+")
-                .replace("__DOUBLESTAR__", ".*");
+                    .replace("**", "__DOUBLESTAR__")
+                    .replace("*", "[^/]+")
+                    .replace("__DOUBLESTAR__", ".*");
         }
         return Pattern.compile("^" + regex + "$");
     }

@@ -1,11 +1,12 @@
 package com.gateway.filter;
 
 import com.gateway.model.RouteConfig.CircuitBreakerConfig;
-import org.jboss.logging.Logger;
 
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+
+import org.jboss.logging.Logger;
 
 enum CircuitState {
     CLOSED, OPEN, HALF_OPEN

@@ -4,6 +4,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+
 import jakarta.inject.Singleton;
 
 import java.time.Duration;
@@ -18,9 +19,14 @@ public class GatewayMetrics {
 
     private final MeterRegistry registry;
     private final Timer requestDuration;
+    private final Timer upstreamLatency;
     private final AtomicInteger activeConnCount = new AtomicInteger(0);
     private final AtomicInteger activeWsConnCount = new AtomicInteger(0);
     private final ConcurrentHashMap<String, Counter> statusCounters = new ConcurrentHashMap<>();
+    private final Counter cacheHitCounter;
+    private final Counter cacheMissCounter;
+    private final Counter rateLimitCounter;
+    private final Counter circuitBreakerCounter;
 
     public GatewayMetrics(MeterRegistry registry) {
         this.registry = registry;
@@ -36,6 +42,26 @@ public class GatewayMetrics {
         this.requestDuration = Timer.builder("gateway_request_duration_seconds")
                 .description("Request processing duration")
                 .tag("gateway", "java-gateway")
+                .register(registry);
+
+        this.upstreamLatency = Timer.builder("gateway_upstream_latency_seconds")
+                .description("Time spent waiting for upstream response")
+                .register(registry);
+
+        this.cacheHitCounter = Counter.builder("gateway_cache_hits_total")
+                .description("Total cache hits")
+                .register(registry);
+
+        this.cacheMissCounter = Counter.builder("gateway_cache_misses_total")
+                .description("Total cache misses")
+                .register(registry);
+
+        this.rateLimitCounter = Counter.builder("gateway_rate_limit_exceeded_total")
+                .description("Total requests rejected by rate limiter")
+                .register(registry);
+
+        this.circuitBreakerCounter = Counter.builder("gateway_circuit_breaker_triggered_total")
+                .description("Total circuit breaker state transitions to OPEN")
                 .register(registry);
     }
 
@@ -59,13 +85,31 @@ public class GatewayMetrics {
         requestDuration.record(duration);
 
         String key = route + ":" + statusCode;
-        statusCounters.computeIfAbsent(key, k ->
-                Counter.builder("gateway_requests_total")
-                        .description("Total number of requests processed")
-                        .tag("route", route)
-                        .tag("status", String.valueOf(statusCode))
-                        .register(registry)
-        ).increment();
+        statusCounters.computeIfAbsent(key, k -> Counter.builder("gateway_requests_total")
+                .description("Total number of requests processed")
+                .tag("route", route)
+                .tag("status", String.valueOf(statusCode))
+                .register(registry)).increment();
+    }
+
+    public void recordUpstreamLatency(Duration latency) {
+        upstreamLatency.record(latency);
+    }
+
+    public void recordCacheHit() {
+        cacheHitCounter.increment();
+    }
+
+    public void recordCacheMiss() {
+        cacheMissCounter.increment();
+    }
+
+    public void recordRateLimitExceeded() {
+        rateLimitCounter.increment();
+    }
+
+    public void recordCircuitBreakerTriggered() {
+        circuitBreakerCounter.increment();
     }
 
     public MeterRegistry getRegistry() {

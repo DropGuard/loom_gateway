@@ -1,5 +1,7 @@
 package com.gateway.integration;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import com.gateway.filter.*;
 import com.gateway.model.RouteConfig;
 import com.gateway.model.RouteConfig.AuthConfig;
@@ -9,18 +11,20 @@ import com.gateway.model.RouteConfig.FilterConfig;
 import com.gateway.model.RouteConfig.GrayConfig;
 import com.gateway.model.RouteConfig.RateLimitConfig;
 import com.gateway.testutil.MockRequest;
+import com.gateway.testutil.MockResponse;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+
 import io.vertx.core.http.HttpMethod;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 
 import java.util.Date;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 class FilterChainIntegrationTest {
 
@@ -48,46 +52,47 @@ class FilterChainIntegrationTest {
                         .build());
         FilterContext ctx = newTestContext(route);
 
-        FilterResult authResult = authFilter.filter(ctx);
-        assertFalse(authResult.continueChain());
-        assertEquals(401, authResult.statusCode());
-
-        FilterContext ctx2 = newTestContext(route);
-        assertFalse(authFilter.filter(ctx2).continueChain());
+        AtomicBoolean nextCalled = new AtomicBoolean(false);
+        authFilter.apply(ctx, () -> nextCalled.set(true));
+        assertFalse(nextCalled.get());
+        assertEquals(401, ((MockResponse) ctx.response()).statusCode);
     }
 
     @Test
-    void testCacheFilterSkipsNonGetRequests() {
+    void testCacheFilterSkipsNonGetRequests() throws Exception {
         MockRequest req = new MockRequest();
         req.method = HttpMethod.POST;
-        FilterContext ctx = new FilterContext(req, null);
+        MockResponse resp = new MockResponse();
+        FilterContext ctx = new FilterContext(req, resp);
 
         RouteConfig route = new RouteConfig("r1", "/**", null, "backend:8080",
                 FilterConfig.builder().cache(new CacheConfig(true, 60)).build());
         ctx.route(route);
 
-        assertTrue(cacheFilter.filter(ctx).continueChain());
+        AtomicBoolean nextCalled = new AtomicBoolean(false);
+        cacheFilter.apply(ctx, () -> nextCalled.set(true));
+        assertTrue(nextCalled.get());
     }
 
     @Test
-    void testCircuitBreakerBlocksAfterFailures() {
+    void testCircuitBreakerBlocksAfterFailures() throws Exception {
         RouteConfig route = new RouteConfig("r1", "/**", null, "backend:8080",
                 FilterConfig.builder().circuitBreaker(new CircuitBreakerConfig(3, 5000)).build());
-        FilterContext ctx = newTestContext(route);
 
-        assertTrue(circuitBreakerFilter.filter(ctx).continueChain());
+        for (int i = 0; i < 3; i++) {
+            FilterContext ctx = newTestContext(route);
+            circuitBreakerFilter.apply(ctx, () -> ctx.proxySuccess(false));
+        }
 
-        circuitBreakerFilter.recordOutcome("r1", false);
-        circuitBreakerFilter.recordOutcome("r1", false);
-        circuitBreakerFilter.recordOutcome("r1", false);
-
-        FilterResult result = circuitBreakerFilter.filter(ctx);
-        assertFalse(result.continueChain());
-        assertEquals(503, result.statusCode());
+        FilterContext ctx2 = newTestContext(route);
+        AtomicBoolean nextCalled2 = new AtomicBoolean(false);
+        circuitBreakerFilter.apply(ctx2, () -> nextCalled2.set(true));
+        assertFalse(nextCalled2.get());
+        assertEquals(503, ((MockResponse) ctx2.response()).statusCode);
     }
 
     @Test
-    void testGrayReleaseChangesUpstream() {
+    void testGrayReleaseChangesUpstream() throws Exception {
         RouteConfig route = new RouteConfig("r1", "/**", null, "backend:8080",
                 FilterConfig.builder()
                         .gray(new GrayConfig(100, "gray-backend:8080", null))
@@ -95,10 +100,14 @@ class FilterChainIntegrationTest {
         FilterContext ctx = newTestContext(route);
         ctx.claims(java.util.Map.of("sub", (Object) "user-1"));
 
-        assertTrue(authFilter.filter(ctx).continueChain());
+        AtomicBoolean nextCalled = new AtomicBoolean(false);
+        authFilter.apply(ctx, () -> nextCalled.set(true));
+        assertTrue(nextCalled.get());
 
         GrayReleaseFilter grayFilter = new GrayReleaseFilter();
-        assertTrue(grayFilter.filter(ctx).continueChain());
+        AtomicBoolean nextCalled2 = new AtomicBoolean(false);
+        grayFilter.apply(ctx, () -> nextCalled2.set(true));
+        assertTrue(nextCalled2.get());
         assertEquals("gray-backend:8080", ctx.effectiveUpstream());
     }
 
@@ -108,7 +117,8 @@ class FilterChainIntegrationTest {
         MockRequest req = new MockRequest();
         req.headers.put("Authorization", "Bearer " + token);
         req.method = HttpMethod.GET;
-        FilterContext ctx = new FilterContext(req, null);
+        MockResponse resp = new MockResponse();
+        FilterContext ctx = new FilterContext(req, resp);
 
         RouteConfig route = new RouteConfig("r1", "/api/data", null, "backend:8080",
                 FilterConfig.builder()
@@ -120,15 +130,19 @@ class FilterChainIntegrationTest {
                         .build());
         ctx.route(route);
 
-        assertTrue(authFilter.filter(ctx).continueChain());
-        assertTrue(rateLimitFilter.filter(ctx).continueChain());
-        assertTrue(circuitBreakerFilter.filter(ctx).continueChain());
-        assertTrue(cacheFilter.filter(ctx).continueChain());
+        FilterChain chain = new FilterChain(java.util.List.of(
+                authFilter, rateLimitFilter, circuitBreakerFilter,
+                new GrayReleaseFilter(), cacheFilter));
+
+        AtomicBoolean proxyCalled = new AtomicBoolean(false);
+        chain.execute(ctx, () -> proxyCalled.set(true));
+        assertTrue(proxyCalled.get());
     }
 
     private FilterContext newTestContext(RouteConfig route) {
         MockRequest req = new MockRequest();
-        FilterContext ctx = new FilterContext(req, null);
+        MockResponse resp = new MockResponse();
+        FilterContext ctx = new FilterContext(req, resp);
         ctx.route(route);
         return ctx;
     }

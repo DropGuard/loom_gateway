@@ -1,51 +1,46 @@
 package com.gateway.router;
 
-import com.gateway.cache.LocalCacheManager.CacheEntry;
 import com.gateway.config.RouteConfigProvider;
-import com.gateway.filter.CacheFilter;
-import com.gateway.filter.CircuitBreakerFilter;
-import com.gateway.filter.FilterChain;
+import com.gateway.exception.ConfigException;
+import com.gateway.exception.UpstreamException;
+import com.gateway.filter.FilterChains;
 import com.gateway.filter.FilterContext;
+import com.gateway.metrics.GatewayMetrics;
 import com.gateway.model.RouteConfig;
+
 import io.quarkus.vertx.web.Route;
 import io.quarkus.vertx.web.RouteFilter;
 import io.smallrye.common.annotation.RunOnVirtualThread;
-import io.vertx.core.http.HttpMethod;
 import io.vertx.ext.web.RoutingContext;
-import io.vertx.mutiny.core.Vertx;
-import io.vertx.mutiny.core.http.HttpClient;
-import io.vertx.mutiny.core.http.HttpClientRequest;
+
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
-import jakarta.inject.Named;
+
+import java.time.Duration;
+import java.time.Instant;
+
 import org.jboss.logging.Logger;
 
+/**
+ * Routes incoming requests and delegates to the appropriate proxy handler.
+ * Responsibilities: route matching, filter chain execution, metrics, exception handling.
+ */
 @ApplicationScoped
 public class GatewayRouter {
 
     private static final Logger LOG = Logger.getLogger(GatewayRouter.class);
-    private final HttpClient httpClient;
-    private final FilterChain httpFilterChain;
-    private final FilterChain wsFilterChain;
+    private final FilterChains filterChains;
+    private final GatewayMetrics metrics;
+    private final HttpProxyHandler httpProxyHandler;
+    private final RouteConfigProvider routeConfigProvider;
+    private final WebSocketProxyHandler webSocketProxyHandler;
 
-    @Inject
-    RouteConfigProvider routeConfigProvider;
-
-    @Inject
-    CircuitBreakerFilter circuitBreakerFilter;
-
-    @Inject
-    CacheFilter cacheFilter;
-
-    @Inject
-    WebSocketProxyHandler webSocketProxyHandler;
-
-    public GatewayRouter(Vertx vertx,
-                         @Named("http") FilterChain httpFilterChain,
-                         @Named("ws") FilterChain wsFilterChain) {
-        this.httpClient = vertx.createHttpClient();
-        this.httpFilterChain = httpFilterChain;
-        this.wsFilterChain = wsFilterChain;
+    public GatewayRouter(FilterChains filterChains, GatewayMetrics metrics, HttpProxyHandler httpProxyHandler,
+                         RouteConfigProvider routeConfigProvider, WebSocketProxyHandler webSocketProxyHandler) {
+        this.filterChains = filterChains;
+        this.metrics = metrics;
+        this.httpProxyHandler = httpProxyHandler;
+        this.routeConfigProvider = routeConfigProvider;
+        this.webSocketProxyHandler = webSocketProxyHandler;
     }
 
     @RouteFilter
@@ -62,8 +57,7 @@ public class GatewayRouter {
 
         RouteConfig matchedRoute = routeConfigProvider.findMatchingRoute(
                 context.request().path(),
-                context.request().method().toString()
-        );
+                context.request().method().toString());
         if (matchedRoute == null) {
             context.response().setStatusCode(404).end("No matching route");
             return;
@@ -74,11 +68,16 @@ public class GatewayRouter {
         FilterContext filterContext = new FilterContext(context.request(), context.response());
         filterContext.route(matchedRoute);
 
-        if (!wsFilterChain.execute(filterContext)) {
-            return;
+        try {
+            filterChains.ws().execute(filterContext, () -> {
+                webSocketProxyHandler.proxy(context, filterContext);
+            });
+        } catch (Exception e) {
+            LOG.errorf(e, "WebSocket filter chain error");
+            if (!context.response().ended()) {
+                context.response().setStatusCode(500).end("Internal Server Error");
+            }
         }
-
-        webSocketProxyHandler.proxy(context, filterContext);
     }
 
     @Route(path = "/*")
@@ -89,13 +88,17 @@ public class GatewayRouter {
             return;
         }
 
-        String routeId = null;
+        metrics.incrementActiveConnections();
+        Instant start = Instant.now();
+        String routeId = "unknown";
+        int statusCode = 200;
+
         try {
             RouteConfig matchedRoute = routeConfigProvider.findMatchingRoute(
-                context.request().path(),
-                context.request().method().toString()
-            );
+                    context.request().path(),
+                    context.request().method().toString());
             if (matchedRoute == null) {
+                statusCode = 404;
                 context.response().setStatusCode(404).end("No matching route");
                 return;
             }
@@ -106,128 +109,43 @@ public class GatewayRouter {
             FilterContext filterContext = new FilterContext(context.request(), context.response());
             filterContext.route(matchedRoute);
 
-            if (!httpFilterChain.execute(filterContext)) {
-                return;
-            }
-
-            CacheEntry cachedEntry = filterContext.getAttribute("cachedResponse");
-            if (cachedEntry != null) {
-                writeCachedResponse(context, cachedEntry);
-                return;
-            }
-
-            boolean success = proxy(context, filterContext);
-            circuitBreakerFilter.recordOutcome(routeId, success);
-
-            if (success) {
-                cacheFilter.storeResponse(filterContext);
-            }
-
-        } catch (Exception e) {
-            LOG.errorf(e, "Error processing request: %s %s",
-                context.request().method(), context.request().path());
-            if (!context.response().ended()) {
-                context.response().setStatusCode(502).end("Bad Gateway");
-            }
-            if (routeId != null) {
-                circuitBreakerFilter.recordOutcome(routeId, false);
-            }
-        }
-    }
-
-    private void writeCachedResponse(RoutingContext context, CacheEntry entry) {
-        context.response().setStatusCode(entry.statusCode());
-        if (entry.contentType() != null) {
-            context.response().headers().set("content-type", entry.contentType());
-        }
-        context.response().end(io.vertx.core.buffer.Buffer.buffer(entry.body()));
-        LOG.debugf("Served cached response (%d bytes)", entry.body().length);
-    }
-
-    private boolean proxy(RoutingContext context, FilterContext filterContext) throws Exception {
-        io.vertx.core.http.HttpServerRequest incomingReq = context.request();
-        HttpMethod method = HttpMethod.valueOf(incomingReq.method().name());
-
-        String upstreamUrl = filterContext.effectiveUpstream();
-        boolean ssl = false;
-        if (upstreamUrl.startsWith("https://")) {
-            upstreamUrl = upstreamUrl.substring(8);
-            ssl = true;
-        } else if (upstreamUrl.startsWith("http://")) {
-            upstreamUrl = upstreamUrl.substring(7);
-        }
-
-        String[] parts = upstreamUrl.split(":", 2);
-        String host = parts[0];
-        int port = parts.length > 1 ? Integer.parseInt(parts[1]) : (ssl ? 443 : 80);
-
-        String uri = incomingReq.path();
-        String queryString = incomingReq.query();
-        if (queryString != null) {
-            uri += "?" + queryString;
-        }
-
-        String effectiveUpstream = filterContext.effectiveUpstream();
-        LOG.debugf("Forwarding to: %s:%d%s", host, port, uri);
-
-        try {
-            HttpClientRequest backendReq = httpClient.request(method, port, host, uri)
-                .await().indefinitely();
-
-            incomingReq.headers().forEach(entry -> {
-                String key = entry.getKey();
-                if (!isHopByHopHeader(key)
-                        && !"content-length".equalsIgnoreCase(key)
-                        && !"X-User-Id".equalsIgnoreCase(key)) {
-                    backendReq.headers().add(key, entry.getValue());
+            filterChains.http().execute(filterContext, () -> {
+                try {
+                    httpProxyHandler.proxy(context, filterContext);
+                    filterContext.proxySuccess(true);
+                } catch (Exception e) {
+                    filterContext.proxySuccess(false);
+                    throw e;
                 }
             });
 
-            java.util.Map<String, Object> claims = filterContext.claims();
-            if (claims != null && claims.get("sub") != null) {
-                backendReq.headers().set("X-User-Id", claims.get("sub").toString());
+            statusCode = context.response().getStatusCode();
+
+        } catch (UpstreamException e) {
+            statusCode = e.getStatusCode();
+            LOG.warnf("Upstream error for %s %s: %s",
+                    context.request().method(), context.request().path(), e.getMessage());
+            if (!context.response().ended()) {
+                context.response().setStatusCode(statusCode).end("Bad Gateway");
             }
-
-            io.vertx.core.buffer.Buffer body = context.body() != null ? context.body().buffer() : null;
-            io.vertx.core.http.HttpServerResponse clientResp = context.response();
-
-            backendReq.send(
-                io.vertx.mutiny.core.buffer.Buffer.newInstance(body != null ? body : io.vertx.core.buffer.Buffer.buffer())
-            ).chain(backendRes -> {
-                backendRes.headers().forEach(entry -> {
-                    if (!isHopByHopHeader(entry.getKey())) {
-                        clientResp.headers().add(entry.getKey(), entry.getValue());
-                    }
-                });
-                clientResp.setStatusCode(backendRes.statusCode());
-                LOG.debugf("Upstream response: %d", backendRes.statusCode());
-                return backendRes.pipeTo(
-                    io.vertx.mutiny.core.http.HttpServerResponse.newInstance(clientResp)
-                );
-            }).await().indefinitely();
-            return true;
-
+        } catch (ConfigException e) {
+            statusCode = 500;
+            LOG.errorf("Configuration error: %s", e.getMessage());
+            if (!context.response().ended()) {
+                context.response().setStatusCode(500).end("Internal Server Error");
+            }
         } catch (Exception e) {
-            LOG.errorf(e, "Proxy failed for %s", effectiveUpstream);
-            io.vertx.core.http.HttpServerResponse clientResp = context.response();
-            if (!clientResp.ended()) {
-                if (e instanceof java.util.concurrent.TimeoutException
-                        || e instanceof io.netty.handler.timeout.TimeoutException) {
-                    clientResp.setStatusCode(504).end("Gateway Timeout");
-                } else {
-                    clientResp.setStatusCode(502).end("Bad Gateway");
-                }
+            statusCode = 500;
+            LOG.errorf(e, "Unexpected error processing request: %s %s",
+                    context.request().method(), context.request().path());
+            if (!context.response().ended()) {
+                context.response().setStatusCode(500).end("Internal Server Error");
             }
-            return false;
+        } finally {
+            Duration duration = Duration.between(start, Instant.now());
+            metrics.recordRequest(routeId, statusCode, duration);
+            metrics.decrementActiveConnections();
         }
-    }
-
-    private boolean isHopByHopHeader(String name) {
-        return switch (name.toLowerCase()) {
-            case "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
-                 "te", "trailers", "transfer-encoding", "upgrade", "host" -> true;
-            default -> false;
-        };
     }
 
     private static boolean isWebSocketUpgrade(io.vertx.core.http.HttpServerRequest request) {

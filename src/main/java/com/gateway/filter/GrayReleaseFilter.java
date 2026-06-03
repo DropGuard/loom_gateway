@@ -1,10 +1,12 @@
 package com.gateway.filter;
 
 import com.gateway.model.RouteConfig.GrayConfig;
+
 import jakarta.inject.Singleton;
-import org.jboss.logging.Logger;
 
 import java.util.Map;
+
+import org.jboss.logging.Logger;
 
 @Singleton
 public class GrayReleaseFilter implements Filter {
@@ -12,23 +14,22 @@ public class GrayReleaseFilter implements Filter {
     private static final Logger LOG = Logger.getLogger(GrayReleaseFilter.class);
 
     @Override
-    public FilterResult filter(FilterContext context) {
+    public void apply(FilterContext context, Next next) throws Exception {
         GrayConfig gray = context.filters().gray();
         if (gray == null || gray.grayUpstream() == null) {
-            return FilterResult.CONTINUE;
+            next.run();
+            return;
         }
 
-        if (matchByHeader(context, gray)) {
-            return FilterResult.CONTINUE;
+        if (!matchByHeader(context, gray)) {
+            double threshold = Math.min(Math.max(gray.trafficPercent(), 0), 100);
+            if (threshold > 0 && shouldRouteToGray(context, threshold)) {
+                LOG.debugf("Gray matched by traffic percent (%.1f%%)", threshold);
+                context.targetUpstream(gray.grayUpstream());
+            }
         }
 
-        double threshold = Math.min(Math.max(gray.trafficPercent(), 0), 100);
-        if (threshold > 0 && shouldRouteToGray(context, threshold)) {
-            LOG.debugf("Gray matched by traffic percent (%.1f%%)", threshold);
-            context.targetUpstream(gray.grayUpstream());
-        }
-
-        return FilterResult.CONTINUE;
+        next.run();
     }
 
     private boolean matchByHeader(FilterContext context, GrayConfig gray) {

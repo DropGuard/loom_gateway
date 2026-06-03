@@ -6,8 +6,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Thread-safe fixed-window rate limiter per route.
- * Uses ReentrantLock instead of synchronized to avoid pinning virtual threads.
+ * Thread-safe fixed-window rate limiter per route. Uses ReentrantLock instead
+ * of synchronized to avoid pinning virtual threads.
  */
 public class SimpleRateLimiter {
 

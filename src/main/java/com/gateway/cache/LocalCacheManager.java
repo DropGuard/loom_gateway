@@ -1,20 +1,20 @@
 package com.gateway.cache;
 
-import java.util.Map;
-import java.util.concurrent.TimeUnit;
-
-import org.jboss.logging.Logger;
-
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Expiry;
 
 import jakarta.inject.Singleton;
 
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+
+import org.jboss.logging.Logger;
+
 /**
- * Manages in-memory caching for GET responses using Caffeine.
- * Uses W-TinyLFU eviction (better hit rate than pure LRU) and native per-key
- * TTL via Caffeine Expiry.
+ * Manages in-memory caching for GET responses using Caffeine. Uses W-TinyLFU
+ * eviction (better hit rate than pure LRU) and native per-key TTL via Caffeine
+ * Expiry.
  */
 @Singleton
 public class LocalCacheManager {

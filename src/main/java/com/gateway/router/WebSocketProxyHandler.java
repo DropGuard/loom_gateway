@@ -3,17 +3,19 @@ package com.gateway.router;
 import com.gateway.filter.CircuitBreakerFilter;
 import com.gateway.filter.FilterContext;
 import com.gateway.metrics.GatewayMetrics;
+
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.http.ServerWebSocket;
 import io.vertx.core.http.WebSocket;
 import io.vertx.core.http.WebSocketConnectOptions;
 import io.vertx.ext.web.RoutingContext;
-import jakarta.inject.Inject;
+
 import jakarta.inject.Singleton;
-import org.jboss.logging.Logger;
 
 import java.util.Map;
+
+import org.jboss.logging.Logger;
 
 @Singleton
 public class WebSocketProxyHandler {
@@ -22,28 +24,19 @@ public class WebSocketProxyHandler {
     private static final short WS_CLOSE_UNEXPECTED_CONDITION = 1011;
     private final HttpClient httpClient;
     private final GatewayMetrics metrics;
+    private final CircuitBreakerFilter circuitBreakerFilter;
 
-    @Inject
-    CircuitBreakerFilter circuitBreakerFilter;
-
-    public WebSocketProxyHandler(Vertx vertx, GatewayMetrics metrics) {
+    public WebSocketProxyHandler(Vertx vertx, GatewayMetrics metrics, CircuitBreakerFilter circuitBreakerFilter) {
         this.httpClient = vertx.createHttpClient();
         this.metrics = metrics;
+        this.circuitBreakerFilter = circuitBreakerFilter;
     }
 
     public void proxy(RoutingContext context, FilterContext filterContext) {
-        String upstreamUrl = filterContext.effectiveUpstream();
-        boolean ssl = false;
-        if (upstreamUrl.startsWith("https://")) {
-            upstreamUrl = upstreamUrl.substring(8);
-            ssl = true;
-        } else if (upstreamUrl.startsWith("http://")) {
-            upstreamUrl = upstreamUrl.substring(7);
-        }
-
-        String[] parts = upstreamUrl.split(":", 2);
-        String host = parts[0];
-        int port = parts.length > 1 ? Integer.parseInt(parts[1]) : (ssl ? 443 : 80);
+        UpstreamAddress upstream = UpstreamAddress.parse(filterContext.effectiveUpstream());
+        String host = upstream.host();
+        int port = upstream.port();
+        boolean ssl = upstream.ssl();
 
         String uri = context.request().path();
         String queryString = context.request().query();
@@ -118,11 +111,13 @@ public class WebSocketProxyHandler {
 
         clientWs.exceptionHandler(err -> {
             LOG.debugf("Client WebSocket error: %s", err.getMessage());
-            if (!upstreamWs.isClosed()) upstreamWs.close();
+            if (!upstreamWs.isClosed())
+                upstreamWs.close();
         });
         upstreamWs.exceptionHandler(err -> {
             LOG.debugf("Upstream WebSocket error: %s", err.getMessage());
-            if (!clientWs.isClosed()) clientWs.close();
+            if (!clientWs.isClosed())
+                clientWs.close();
         });
     }
 }

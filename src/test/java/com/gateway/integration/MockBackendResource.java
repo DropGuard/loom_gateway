@@ -33,7 +33,8 @@ public class MockBackendResource implements QuarkusTestResourceLifecycleManager 
                                 .put("user", "test")
                                 .put("path", path);
                         String userId = req.getHeader("X-User-Id");
-                        if (userId != null) json.put("userId", userId);
+                        if (userId != null)
+                            json.put("userId", userId);
                         json(req, json);
                     } else if (path.startsWith("/api/public")) {
                         json(req, new JsonObject().put("public", true));

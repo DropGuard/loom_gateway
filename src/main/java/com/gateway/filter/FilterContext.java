@@ -2,22 +2,31 @@ package com.gateway.filter;
 
 import com.gateway.model.RouteConfig;
 import com.gateway.model.RouteConfig.FilterConfig;
+
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
 /**
  * Context passed to each filter in the chain.
  */
 public class FilterContext {
 
+    /**
+     * Captured upstream response data, passed to response interceptors.
+     */
+    public record ResponseData(int statusCode, String contentType, byte[] body) {}
+
     private final HttpServerRequest request;
     private final HttpServerResponse response;
     private RouteConfig route;
     private String grayUpstream;
     private Map<String, Object> claims;
+    private boolean proxySuccess;
+    private Consumer<ResponseData> responseInterceptor;
     private final Map<String, Object> attributes = new ConcurrentHashMap<>();
 
     public FilterContext(HttpServerRequest request, HttpServerResponse response) {
@@ -71,5 +80,27 @@ public class FilterContext {
 
     public void targetUpstream(String upstream) {
         this.grayUpstream = upstream;
+    }
+
+    public boolean proxySuccess() {
+        return proxySuccess;
+    }
+
+    public void proxySuccess(boolean success) {
+        this.proxySuccess = success;
+    }
+
+    /**
+     * Registers a callback to intercept the upstream response before it is sent
+     * to the client. When set, the proxy will buffer the response body and pass
+     * it to the interceptor, then send to the client. When not set, the proxy
+     * streams directly via pipeTo without buffering.
+     */
+    public void onResponse(Consumer<ResponseData> interceptor) {
+        this.responseInterceptor = interceptor;
+    }
+
+    public Consumer<ResponseData> responseInterceptor() {
+        return responseInterceptor;
     }
 }

@@ -3,6 +3,7 @@ package com.gateway;
 import io.quarkus.runtime.Quarkus;
 import io.quarkus.runtime.QuarkusApplication;
 import io.quarkus.runtime.annotations.QuarkusMain;
+
 import org.jboss.logging.Logger;
 
 @QuarkusMain

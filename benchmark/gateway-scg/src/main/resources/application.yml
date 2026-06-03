@@ -1,0 +1,30 @@
+server:
+  port: 8080
+
+gateway:
+  jwt:
+    secret: "bench-secret-key-that-is-at-least-32-chars!"
+
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: bench-open
+          uri: http://mock-backend:80
+          predicates:
+            - Path=/bench/open/**
+        - id: bench-auth
+          uri: http://mock-backend:80
+          predicates:
+            - Path=/bench/auth/**
+          filters:
+            - JwtAuth
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: always

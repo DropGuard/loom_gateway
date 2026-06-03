@@ -1,0 +1,74 @@
+services:
+  mock-backend:
+    image: nginx:alpine
+    volumes:
+      - ./mock-backend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+  gateway-loom:
+    profiles: [loom]
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    volumes:
+      - ./config:/config:ro
+    depends_on:
+      mock-backend:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/q/health/live"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 512M
+
+  gateway-scg:
+    profiles: [scg]
+    build:
+      context: gateway-scg
+    depends_on:
+      mock-backend:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 512M
+
+  k6-loom:
+    profiles: [loom]
+    image: grafana/k6
+    volumes:
+      - ./k6:/scripts:ro
+      - ./results:/results
+    environment:
+      - GATEWAY_URL=http://gateway-loom:8080
+      - GATEWAY_NAME=loom
+    command: run /scripts/baseline.js
+    depends_on:
+      gateway-loom:
+        condition: service_healthy
+
+  k6-scg:
+    profiles: [scg]
+    image: grafana/k6
+    volumes:
+      - ./k6:/scripts:ro
+      - ./results:/results
+    environment:
+      - GATEWAY_URL=http://gateway-scg:8080
+      - GATEWAY_NAME=scg
+    command: run /scripts/baseline.js
+    depends_on:
+      gateway-scg:
+        condition: service_healthy

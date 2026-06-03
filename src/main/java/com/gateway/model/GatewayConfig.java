@@ -1,6 +1,7 @@
 package com.gateway.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import java.util.List;
 
 /**
@@ -8,7 +9,6 @@ import java.util.List;
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record GatewayConfig(
-    List<RouteConfig> routes
-) {
+        List<RouteConfig> routes) {
     public static final GatewayConfig EMPTY = new GatewayConfig(List.of());
 }

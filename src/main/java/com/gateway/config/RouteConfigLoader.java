@@ -1,13 +1,13 @@
 package com.gateway.config;
 
-import com.gateway.model.GatewayConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import com.gateway.model.GatewayConfig;
 import com.gateway.model.RouteConfig;
+
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Event;
 import jakarta.inject.Inject;
-import org.jboss.logging.Logger;
 
 import java.io.IOException;
 import java.nio.file.*;
@@ -15,9 +15,11 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
+import org.jboss.logging.Logger;
+
 /**
- * Route configuration loader with file watching support.
- * Loads routes.yaml on startup and watches for file changes to hot-reload.
+ * Route configuration loader with file watching support. Loads routes.yaml on
+ * startup and watches for file changes to hot-reload.
  */
 @ApplicationScoped
 public class RouteConfigLoader implements RouteConfigProvider {
@@ -32,8 +34,8 @@ public class RouteConfigLoader implements RouteConfigProvider {
     Event<RouteConfigReloadedEvent> reloadEvent;
 
     /**
-     * Load configuration from the specified YAML file path.
-     * Must be called at application startup.
+     * Load configuration from the specified YAML file path. Must be called at
+     * application startup.
      */
     public void loadFromPath(String configPath) {
         LOG.infof("Loading route configuration from: %s", configPath);
@@ -58,14 +60,13 @@ public class RouteConfigLoader implements RouteConfigProvider {
      */
     private void startWatching(Path configPath) {
         Thread.ofVirtual().name("config-watcher").start(() -> {
-            try {
-                WatchService watchService = FileSystems.getDefault().newWatchService();
+            try (WatchService watchService = FileSystems.getDefault().newWatchService()) {
                 Path parentDir = configPath.getParent();
 
                 if (parentDir != null) {
                     parentDir.register(watchService,
-                        StandardWatchEventKinds.ENTRY_MODIFY,
-                        StandardWatchEventKinds.ENTRY_CREATE);
+                            StandardWatchEventKinds.ENTRY_MODIFY,
+                            StandardWatchEventKinds.ENTRY_CREATE);
                 }
 
                 LOG.infof("Started watching configuration file: %s", configPath);
@@ -119,7 +120,7 @@ public class RouteConfigLoader implements RouteConfigProvider {
         this.compiledPatterns = newPatterns;
         this.config = newConfig;
         LOG.infof("Applied configuration with %d routes",
-            newConfig.routes() != null ? newConfig.routes().size() : 0);
+                newConfig.routes() != null ? newConfig.routes().size() : 0);
     }
 
     /**
@@ -132,9 +133,9 @@ public class RouteConfigLoader implements RouteConfigProvider {
             regex = basePath + "(?:/.*)?";
         } else {
             regex = pathPattern
-                .replace("**", "__DOUBLESTAR__")
-                .replace("*", "[^/]+")
-                .replace("__DOUBLESTAR__", ".*");
+                    .replace("**", "__DOUBLESTAR__")
+                    .replace("*", "[^/]+")
+                    .replace("__DOUBLESTAR__", ".*");
         }
         return Pattern.compile("^" + regex + "$");
     }
@@ -154,7 +155,7 @@ public class RouteConfigLoader implements RouteConfigProvider {
             Pattern pattern = currentPatterns.get(route.id());
             if (pattern != null && pattern.matcher(requestPath).matches()) {
                 if (route.methods() == null || route.methods().isEmpty() ||
-                    route.methods().contains(method.toUpperCase())) {
+                        route.methods().contains(method.toUpperCase())) {
                     return route;
                 }
             }

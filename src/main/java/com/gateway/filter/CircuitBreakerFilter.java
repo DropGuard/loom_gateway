@@ -1,27 +1,38 @@
 package com.gateway.filter;
 
+import com.gateway.metrics.GatewayMetrics;
 import com.gateway.model.RouteConfig.CircuitBreakerConfig;
+
+import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
-import org.jboss.logging.Logger;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Applies circuit breaking based on route configuration.
- * Maintains a circuit breaker per route.
- */
+import org.jboss.logging.Logger;
+
 @Singleton
 public class CircuitBreakerFilter implements Filter {
 
     private static final Logger LOG = Logger.getLogger(CircuitBreakerFilter.class);
     private final Map<String, SimpleCircuitBreaker> breakers = new ConcurrentHashMap<>();
+    private final GatewayMetrics metrics;
+
+    @Inject
+    public CircuitBreakerFilter(GatewayMetrics metrics) {
+        this.metrics = metrics;
+    }
+
+    public CircuitBreakerFilter() {
+        this.metrics = null;
+    }
 
     @Override
-    public FilterResult filter(FilterContext context) {
+    public void apply(FilterContext context, Next next) throws Exception {
         CircuitBreakerConfig config = context.filters().circuitBreaker();
         if (config == null || config.failureThreshold() <= 0) {
-            return FilterResult.CONTINUE;
+            next.run();
+            return;
         }
 
         String routeId = context.route().id();
@@ -29,21 +40,32 @@ public class CircuitBreakerFilter implements Filter {
 
         if (!breaker.allowRequest()) {
             LOG.debugf("Circuit breaker OPEN for route '%s'", routeId);
-            return FilterResult.stop(503, "Service Unavailable");
+            if (metrics != null) metrics.recordCircuitBreakerTriggered();
+            FilterResult.stop(503, "Service Unavailable").writeResponse(context.response());
+            return;
         }
 
-        return FilterResult.CONTINUE;
+        try {
+            next.run();
+        } catch (Exception e) {
+            breaker.recordFailure();
+            throw e;
+        }
+
+        if (context.proxySuccess()) {
+            breaker.recordSuccess();
+        } else {
+            breaker.recordFailure();
+        }
     }
 
-    /**
-     * Called by the router/proxy after a backend response is received,
-     * to record success or failure of the request.
-     */
     public void recordOutcome(String routeId, boolean success) {
         SimpleCircuitBreaker breaker = breakers.get(routeId);
         if (breaker != null) {
-            if (success) breaker.recordSuccess();
-            else breaker.recordFailure();
+            if (success)
+                breaker.recordSuccess();
+            else
+                breaker.recordFailure();
         }
     }
 }

@@ -1,0 +1,22 @@
+routes:
+  - id: bench-open
+    path: /bench/open/**
+    methods: [GET, POST, PUT, DELETE]
+    upstream: mock-backend:80
+    filters:
+      rateLimit:
+        limit: 100000
+        windowMs: 1000
+
+  - id: bench-auth
+    path: /bench/auth/**
+    methods: [GET, POST, PUT, DELETE]
+    upstream: mock-backend:80
+    filters:
+      auth:
+        type: jwt
+        required: true
+        secret: "bench-secret-key-that-is-at-least-32-chars!"
+      rateLimit:
+        limit: 100000
+        windowMs: 1000

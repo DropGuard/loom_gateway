@@ -1,19 +1,19 @@
 package com.gateway.integration;
 
-import io.quarkus.test.junit.QuarkusTest;
+import static org.junit.jupiter.api.Assertions.*;
+
 import io.quarkus.test.common.QuarkusTestResource;
+import io.quarkus.test.junit.QuarkusTest;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClient;
-import io.vertx.core.http.WebSocket;
 import io.vertx.core.http.WebSocketConnectOptions;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 @QuarkusTest
 @QuarkusTestResource(MockBackendResource.class)
@@ -32,8 +32,10 @@ class GatewayWebSocketIntegrationTest {
 
     @AfterAll
     static void tearDown() {
-        if (client != null) client.close();
-        if (vertx != null) vertx.close();
+        if (client != null)
+            client.close();
+        if (vertx != null)
+            vertx.close();
     }
 
     @Test
@@ -148,8 +150,7 @@ class GatewayWebSocketIntegrationTest {
 
         var jwt = new com.nimbusds.jwt.SignedJWT(
                 new com.nimbusds.jose.JWSHeader.Builder(com.nimbusds.jose.JWSAlgorithm.HS256).build(),
-                claims
-        );
+                claims);
         jwt.sign(new com.nimbusds.jose.crypto.MACSigner(JWT_SECRET));
         return jwt.serialize();
     }
