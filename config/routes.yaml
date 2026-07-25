@@ -7,7 +7,7 @@ routes:
       auth:
         type: jwt
         required: true
-        secret: "${JWT_SECRET:change-me-in-production}"
+        secret: "${JWT_SECRET:gateway-jwt-secret-CHANGE-ME-in-prod-32+}"
       rateLimit:
         limit: 1000
         windowMs: 1000
@@ -54,3 +54,30 @@ routes:
       rateLimit:
         limit: 100
         windowMs: 1000
+
+  # WebSocket routes (DEFECT A1: previously missing from production config,
+  # so WebSocketProxyHandler was never reached). Auth mirrors the HTTP routes.
+  - id: ws-chat
+    path: /ws/chat/**
+    methods: [GET]
+    upstream: chat-service.default.svc.cluster.local:8080
+    filters:
+      auth:
+        type: jwt
+        required: true
+        secret: "${JWT_SECRET:gateway-jwt-secret-CHANGE-ME-in-prod-32+}"
+      circuitBreaker:
+        failureThreshold: 5
+        resetTimeoutMs: 30000
+
+  - id: ws-public
+    path: /ws/public/**
+    methods: [GET]
+    upstream: mock-backend:80
+    filters:
+      auth:
+        type: none
+        required: false
+      circuitBreaker:
+        failureThreshold: 10
+        resetTimeoutMs: 15000
