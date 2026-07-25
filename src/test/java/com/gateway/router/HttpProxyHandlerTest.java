@@ -3,6 +3,8 @@ package com.gateway.router;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -13,6 +15,7 @@ import com.gateway.exception.UpstreamException;
 import com.gateway.filter.CircuitBreakerFilter;
 import com.gateway.filter.FilterContext;
 import com.gateway.metrics.GatewayMetrics;
+import com.gateway.model.RouteConfig;
 
 import io.smallrye.mutiny.Uni;
 import io.vertx.core.http.HttpMethod;
@@ -22,10 +25,12 @@ import io.vertx.mutiny.core.Vertx;
 import io.vertx.mutiny.core.http.HttpClient;
 
 /**
- * Locks HttpProxyHandler's failure-mode contract: a route with no resolved
- * upstream must fail loudly (ConfigException), and an unreachable upstream must
- * surface as UpstreamException (502) rather than leaking the raw cause. These
- * are the error paths the integration tests only exercise indirectly.
+ * Locks HttpProxyHandler's failure-mode contract. The happy path (header
+ * transformation, status/body forwarding) is covered without mocking by
+ * ProxyHeadersTest / UpstreamAddressTest; here we only need Mockito to force
+ * the two error branches that require a fake upstream client:
+ *  - no resolved upstream -> ConfigException
+ *  - upstream unreachable  -> UpstreamException(502), raw cause wrapped
  */
 @ExtendWith(MockitoExtension.class)
 class HttpProxyHandlerTest {
@@ -44,8 +49,9 @@ class HttpProxyHandlerTest {
         return new HttpProxyHandler(vertx, metrics, circuitBreakerFilter, 5000);
     }
 
-    /** A RoutingContext whose request reports a GET method (avoids NPE in proxy). */
-    private RoutingContext mockContext() {
+    /** A minimal GET context — enough for the error paths that bail out before
+     *  touching the response or forwarding headers. */
+    private RoutingContext minimalContext() {
         RoutingContext rc = mock(RoutingContext.class);
         HttpServerRequest req = mock(HttpServerRequest.class);
         when(rc.request()).thenReturn(req);
@@ -56,11 +62,10 @@ class HttpProxyHandlerTest {
     @Test
     void noUpstream_throwsConfigException() {
         HttpProxyHandler handler = handler();
-        // No route, no gray upstream -> effectiveUpstream is null.
         FilterContext ctx = new FilterContext(mock(), mock());
 
         ConfigException ex = assertThrows(ConfigException.class,
-                () -> handler.proxy(mockContext(), ctx));
+                () -> handler.proxy(minimalContext(), ctx));
         assertTrue(ex.getMessage().contains("No upstream"));
     }
 
@@ -68,16 +73,12 @@ class HttpProxyHandlerTest {
     void upstreamUnreachable_throwsUpstreamException() {
         HttpProxyHandler handler = handler();
         // request() fails (connection refused / DNS) -> surfaced as 502.
-        when(httpClient.request(any(), anyInt(), anyString(), anyString()))
+        when(httpClient.request(any(), anyInt(), anyString(), any()))
                 .thenReturn(Uni.createFrom().failure(
                         new java.net.ConnectException("Connection refused")));
 
-        RoutingContext rc = mockContext();
-        // The proxy forwards incoming headers, so the request must supply some.
-        when(rc.request().headers()).thenReturn(io.vertx.core.MultiMap.caseInsensitiveMultiMap());
-
+        RoutingContext rc = minimalContext();
         FilterContext ctx = new FilterContext(mock(), mock());
-        // Give the route an upstream so we reach the request() call.
         ctx.route(routeWithUpstream("backend:8080"));
 
         UpstreamException ex = assertThrows(UpstreamException.class,
@@ -87,9 +88,9 @@ class HttpProxyHandlerTest {
         assertFalse(ex.getCause() instanceof UpstreamException);
     }
 
-    private com.gateway.model.RouteConfig routeWithUpstream(String upstream) {
-        return new com.gateway.model.RouteConfig(
-                "test-route", "/test/**", java.util.List.of("GET"), upstream,
-                com.gateway.model.RouteConfig.FilterConfig.EMPTY);
+    private RouteConfig routeWithUpstream(String upstream) {
+        return new RouteConfig(
+                "test-route", "/test/**", List.of("GET"), upstream,
+                RouteConfig.FilterConfig.EMPTY);
     }
 }

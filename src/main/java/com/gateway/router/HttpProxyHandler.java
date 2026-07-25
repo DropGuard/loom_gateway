@@ -78,19 +78,8 @@ public class HttpProxyHandler {
             HttpClientRequest backendReq = httpClient.request(method, port, host, uri)
                     .await().indefinitely();
 
-            incomingReq.headers().forEach(entry -> {
-                String key = entry.getKey();
-                if (!isHopByHopHeader(key)
-                        && !"content-length".equalsIgnoreCase(key)
-                        && !"X-User-Id".equalsIgnoreCase(key)) {
-                    backendReq.headers().add(key, entry.getValue());
-                }
-            });
-
-            java.util.Map<String, Object> claims = filterContext.claims();
-            if (claims != null && claims.get("sub") != null) {
-                backendReq.headers().set("X-User-Id", claims.get("sub").toString());
-            }
+            ProxyHeaders.buildForwardHeaders(incomingReq.headers().entries(), subClaim(filterContext.claims()))
+                    .forEach(backendReq.headers()::add);
 
             io.vertx.core.buffer.Buffer body = context.body() != null ? context.body().buffer() : null;
             io.vertx.core.http.HttpServerResponse clientResp = context.response();
@@ -101,11 +90,8 @@ public class HttpProxyHandler {
                     .chain(backendRes -> {
                         metrics.recordUpstreamLatency(Duration.between(upstreamStart, Instant.now()));
 
-                        backendRes.headers().forEach(entry -> {
-                            if (!isHopByHopHeader(entry.getKey())) {
-                                clientResp.headers().add(entry.getKey(), entry.getValue());
-                            }
-                        });
+                        ProxyHeaders.selectClientHeaders(backendRes.headers().entries())
+                                .forEach((k, v) -> clientResp.headers().add(k, v));
                         clientResp.setStatusCode(backendRes.statusCode());
                         LOG.debugf("Upstream response: %d", backendRes.statusCode());
 
@@ -155,19 +141,18 @@ public class HttpProxyHandler {
         circuitBreakerFilter.recordOutcome(filterContext.route().id(), success);
     }
 
+    private static String subClaim(java.util.Map<String, Object> claims) {
+        if (claims == null) {
+            return null;
+        }
+        Object sub = claims.get("sub");
+        return sub == null ? null : sub.toString();
+    }
+
     private static Throwable unwrapCompletionException(Throwable e) {
         while (e instanceof java.util.concurrent.CompletionException && e.getCause() != null) {
             e = e.getCause();
         }
         return e;
-    }
-
-    private boolean isHopByHopHeader(String name) {
-        return switch (name.toLowerCase()) {
-            case "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
-                    "te", "trailers", "transfer-encoding", "upgrade", "host" ->
-                true;
-            default -> false;
-        };
     }
 }
