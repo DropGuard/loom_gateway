@@ -66,6 +66,13 @@ public class GrayReleaseFilter implements Filter {
     private boolean shouldRouteToGray(FilterContext context, double threshold) {
         String identity = resolveIdentity(context);
         if (identity == null) {
+            // DEFECT F1: percentage gray needs an authenticated identity
+            // (JWT sub or API key). Unauthenticated requests can never be
+            // bucketed, so they silently stay on the primary. Log it so the
+            // behavior is observable rather than mysterious.
+            LOG.debugf("Gray (percentage): no resolvable identity for route '%s' " +
+                    "- request stays on primary (percentage canary requires auth)",
+                    context.route() != null ? context.route().id() : "?");
             return false;
         }
         int bucket = Math.floorMod(identity.hashCode(), 100);
