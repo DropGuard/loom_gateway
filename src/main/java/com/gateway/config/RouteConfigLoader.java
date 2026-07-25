@@ -42,7 +42,12 @@ public class RouteConfigLoader implements RouteConfigProvider {
         Path path = Paths.get(configPath);
 
         if (!Files.exists(path)) {
-            LOG.warnf("Configuration file not found: %s, using empty config", configPath);
+            // DEFECT #11: a missing critical config must be loud. The gateway
+            // would otherwise start with EMPTY routes, report readiness DOWN
+            // forever while liveness stays UP, and serve 404s with no restart.
+            LOG.errorf("CRITICAL: Configuration file not found: %s. Gateway will start with " +
+                    "NO routes (readiness DOWN). Fix the path or the file, or Kubernetes " +
+                    "will never restart this pod.", configPath);
             return;
         }
 

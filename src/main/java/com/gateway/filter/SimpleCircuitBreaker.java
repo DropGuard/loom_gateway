@@ -58,16 +58,29 @@ public class SimpleCircuitBreaker {
     }
 
     public void recordFailure() {
-        consecutiveFailures.incrementAndGet();
-        lastFailureTime.set(System.currentTimeMillis());
-
         CircuitState current = state.get();
+
+        // Only (re)arm the OPEN timer when we actually transition into OPEN.
+        // Updating lastFailureTime on every failure would keep pushing the
+        // HALF_OPEN deadline forward, so under a steady trickle of failures the
+        // breaker would stay OPEN forever and serve 100% 503s. (DEFECT #7)
         if (current == CircuitState.HALF_OPEN) {
+            // A probe failed: go back to OPEN and restart the timer.
+            consecutiveFailures.incrementAndGet();
+            lastFailureTime.set(System.currentTimeMillis());
             state.set(CircuitState.OPEN);
             LOG.debug("Circuit breaker transitioning back to OPEN after probe failure");
-        } else if (consecutiveFailures.get() >= failureThreshold) {
-            state.set(CircuitState.OPEN);
-            LOG.debugf("Circuit breaker transitioning to OPEN (failures: %d)", consecutiveFailures.get());
+            return;
+        }
+
+        // CLOSED (or OPEN): just count. The timer is armed only on the
+        // CLOSED -> OPEN transition below, never for failures while already OPEN.
+        int failures = consecutiveFailures.incrementAndGet();
+        if (current == CircuitState.CLOSED && failures >= failureThreshold) {
+            if (state.compareAndSet(CircuitState.CLOSED, CircuitState.OPEN)) {
+                lastFailureTime.set(System.currentTimeMillis());
+                LOG.debugf("Circuit breaker transitioning to OPEN (failures: %d)", failures);
+            }
         }
     }
 
