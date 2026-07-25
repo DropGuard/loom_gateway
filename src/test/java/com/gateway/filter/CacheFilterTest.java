@@ -132,4 +132,52 @@ class CacheFilterTest {
 
         assertTrue(applyAndCheckNext(context)); // cache miss for user-2
     }
+
+    // --- DEFECT #12: authenticated routes must not let an anonymous response
+    // pollute an authenticated caller, and vice versa. ---
+
+    @Test
+    void anonResponseDoesNotPolluteAuthenticatedCaller_onAuthRoute() throws Exception {
+        // A public ("please log in") body was cached under the :anon key.
+        cache.put("GET:/api/data:anon", 200, "application/json", "{\"public\":true}".getBytes(), 60);
+
+        // An authenticated user arrives on the SAME uri.
+        RouteConfig authRoute = routeWithAuthCache(new CacheConfig(true, 60), "jwt");
+        context.route(authRoute);
+        context.claims(Map.of("sub", "user-1"));
+
+        // Must be a cache MISS — must NOT serve the anonymous body.
+        assertTrue(applyAndCheckNext(context));
+        assertNotEquals("{\"public\":true}", response.body);
+    }
+
+    @Test
+    void anonymousCallerHitsAnonPartition_onAuthRoute() throws Exception {
+        cache.put("GET:/api/data:anon", 200, "application/json", "{\"public\":true}".getBytes(), 60);
+
+        // No claims, route supports auth -> key should be :anon -> cache HIT.
+        context.route(routeWithAuthCache(new CacheConfig(true, 60), "jwt"));
+
+        assertFalse(applyAndCheckNext(context));
+        assertEquals("{\"public\":true}", response.body);
+        // Vary header signals the representation varies by auth.
+        assertEquals("Authorization", response.headers().get("Vary"));
+    }
+
+    @Test
+    void noAuthRouteStillSharesPlainKey() throws Exception {
+        // A route with NO auth config: anonymous responses are safe to share.
+        cache.put("GET:/api/data", 200, "application/json", "{\"shared\":true}".getBytes(), 60);
+
+        context.route(routeWithCache(new CacheConfig(true, 60))); // auth == null
+
+        assertFalse(applyAndCheckNext(context));
+        assertEquals("{\"shared\":true}", response.body);
+    }
+
+    private RouteConfig routeWithAuthCache(CacheConfig cacheConfig, String authType) {
+        AuthConfig auth = new AuthConfig(authType, true, "secret", null);
+        return new RouteConfig("r-auth", "/**", null, "localhost:8080",
+                FilterConfig.builder().auth(auth).cache(cacheConfig).build());
+    }
 }

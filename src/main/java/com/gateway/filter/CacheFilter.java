@@ -83,6 +83,12 @@ public class CacheFilter implements Filter {
         if (entry.contentType() != null) {
             context.response().headers().set("content-type", entry.contentType());
         }
+        // DEFECT #12: signal to clients/CDNs that the cached representation
+        // varies by the request's authentication, so they do not collapse
+        // authenticated and anonymous responses either.
+        if (context.filters().auth() != null) {
+            context.response().headers().set("Vary", "Authorization");
+        }
         context.response().end(io.vertx.core.buffer.Buffer.buffer(entry.body()));
         LOG.debugf("Served cached response (%d bytes)", entry.body().length);
     }
@@ -94,7 +100,13 @@ public class CacheFilter implements Filter {
         if (identity != null) {
             return method + ":" + uri + ":" + identity;
         }
-        return method + ":" + uri;
+        // DEFECT #12: a route that *can* authenticate must not let an
+        // unauthenticated response be served to an authenticated caller (and
+        // vice versa). Only routes with NO auth config at all are safe to share
+        // under a bare method:uri key. Otherwise tag the key as anonymous so it
+        // is partitioned away from authenticated entries.
+        boolean routeCanAuthenticate = context.filters().auth() != null;
+        return routeCanAuthenticate ? method + ":" + uri + ":anon" : method + ":" + uri;
     }
 
     private String getUserIdentity(FilterContext context) {
