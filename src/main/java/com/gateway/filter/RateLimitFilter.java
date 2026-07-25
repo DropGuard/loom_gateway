@@ -36,14 +36,39 @@ public class RateLimitFilter implements Filter {
         }
 
         String routeId = context.route().id();
-        SimpleRateLimiter limiter = limiters.computeIfAbsent(routeId, k -> new SimpleRateLimiter(config));
+        // Per-client bucket (DEFECT #8): each client gets its own quota so one
+        // client cannot exhaust the whole route. clientId is null for routes
+        // with no auth, which falls back to the route-wide bucket (key == routeId,
+        // unchanged behavior for anonymous traffic).
+        String clientId = resolveClientId(context);
+        String bucketKey = clientId != null ? routeId + ":" + clientId : routeId;
+        SimpleRateLimiter limiter = limiters.computeIfAbsent(bucketKey, k -> new SimpleRateLimiter(config));
 
-        if (limiter.tryAcquire()) {
+        if (limiter.tryAcquire(bucketKey)) {
             next.run();
         } else {
-            LOG.debugf("Rate limit exceeded for route '%s'", routeId);
+            LOG.debugf("Rate limit exceeded for route '%s'%s",
+                    routeId, clientId != null ? " (client " + clientId + ")" : "");
             if (metrics != null) metrics.recordRateLimitExceeded();
             FilterResult.stop(429, "Too Many Requests").writeResponse(context.response());
         }
+    }
+
+    /**
+     * Resolve a stable per-client identity for rate limiting.
+     * Priority: JWT "sub" claim > API key header > null (no identity, falls
+     * back to the route-wide bucket). Does NOT use raw client IP so we don't
+     * depend on X-Forwarded-For trust (a spoofable header).
+     */
+    private String resolveClientId(FilterContext context) {
+        Map<String, Object> claims = context.claims();
+        if (claims != null && claims.get("sub") != null) {
+            return "sub:" + claims.get("sub");
+        }
+        String apiKey = context.request().getHeader("X-API-Key");
+        if (apiKey != null && !apiKey.isEmpty()) {
+            return "key:" + Integer.toHexString(apiKey.hashCode());
+        }
+        return null;
     }
 }
