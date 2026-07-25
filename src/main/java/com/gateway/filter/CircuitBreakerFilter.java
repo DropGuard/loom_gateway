@@ -6,25 +6,19 @@ import com.gateway.model.RouteConfig.CircuitBreakerConfig;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
 import org.jboss.logging.Logger;
 
 @Singleton
 public class CircuitBreakerFilter implements Filter {
 
     private static final Logger LOG = Logger.getLogger(CircuitBreakerFilter.class);
-    private final Map<String, SimpleCircuitBreaker> breakers = new ConcurrentHashMap<>();
+    private final CircuitBreakerRegistry registry;
     private final GatewayMetrics metrics;
 
     @Inject
-    public CircuitBreakerFilter(GatewayMetrics metrics) {
+    public CircuitBreakerFilter(CircuitBreakerRegistry registry, GatewayMetrics metrics) {
+        this.registry = registry;
         this.metrics = metrics;
-    }
-
-    public CircuitBreakerFilter() {
-        this.metrics = null;
     }
 
     @Override
@@ -36,11 +30,13 @@ public class CircuitBreakerFilter implements Filter {
         }
 
         String routeId = context.route().id();
-        SimpleCircuitBreaker breaker = breakers.computeIfAbsent(routeId, k -> new SimpleCircuitBreaker(config));
+        SimpleCircuitBreaker breaker = registry.reconcile(routeId, config);
 
         if (!breaker.allowRequest()) {
             LOG.debugf("Circuit breaker OPEN for route '%s'", routeId);
-            if (metrics != null) metrics.recordCircuitBreakerTriggered();
+            if (metrics != null) {
+                metrics.recordCircuitBreakerTriggered();
+            }
             FilterResult.stop(503, "Service Unavailable").writeResponse(context.response());
             return;
         }
@@ -56,12 +52,13 @@ public class CircuitBreakerFilter implements Filter {
     }
 
     public void recordOutcome(String routeId, boolean success) {
-        SimpleCircuitBreaker breaker = breakers.get(routeId);
+        SimpleCircuitBreaker breaker = registry.get(routeId);
         if (breaker != null) {
-            if (success)
+            if (success) {
                 breaker.recordSuccess();
-            else
+            } else {
                 breaker.recordFailure();
+            }
         }
     }
 }

@@ -3,6 +3,7 @@ package com.gateway.integration;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.gateway.filter.*;
+import com.gateway.metrics.GatewayMetrics;
 import com.gateway.model.RouteConfig;
 import com.gateway.model.RouteConfig.AuthConfig;
 import com.gateway.model.RouteConfig.CacheConfig;
@@ -18,6 +19,7 @@ import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.http.HttpMethod;
 
 import java.util.Date;
@@ -39,7 +41,7 @@ class FilterChainIntegrationTest {
     void setUp() {
         authFilter = new AuthFilter();
         rateLimitFilter = new RateLimitFilter();
-        circuitBreakerFilter = new CircuitBreakerFilter();
+        circuitBreakerFilter = new CircuitBreakerFilter(new CircuitBreakerRegistry(), new GatewayMetrics(new SimpleMeterRegistry()));
         cacheFilter = new CacheFilter();
     }
 

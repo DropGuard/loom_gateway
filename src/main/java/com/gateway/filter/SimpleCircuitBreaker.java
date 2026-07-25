@@ -2,89 +2,88 @@ package com.gateway.filter;
 
 import com.gateway.model.RouteConfig.CircuitBreakerConfig;
 
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
-
 import org.jboss.logging.Logger;
 
 enum CircuitState {
     CLOSED, OPEN, HALF_OPEN
 }
 
+/**
+ * Per-route circuit breaker state machine. All transitions are guarded by a
+ * single monitor lock: the state is pure in-memory and microsecond-scale, so a
+ * plain synchronized block is both correct and clearer than compare-and-set
+ * gymnastics. The lock also provides single-flight into HALF_OPEN for free.
+ */
 public class SimpleCircuitBreaker {
 
     private static final Logger LOG = Logger.getLogger(SimpleCircuitBreaker.class);
 
-    private final AtomicReference<CircuitState> state = new AtomicReference<>(CircuitState.CLOSED);
-    private final int failureThreshold;
+    private final CircuitBreakerConfig config;
+    private final long failureThreshold;
     private final long resetTimeoutMs;
-    private final AtomicInteger consecutiveFailures = new AtomicInteger(0);
-    private final AtomicLong lastFailureTime = new AtomicLong(0);
+
+    private CircuitState state = CircuitState.CLOSED;
+    private int consecutiveFailures = 0;
+    private long lastFailureTime = 0;
 
     public SimpleCircuitBreaker(CircuitBreakerConfig config) {
+        this.config = config;
         this.failureThreshold = config.failureThreshold();
         this.resetTimeoutMs = config.resetTimeoutMs();
     }
 
-    public boolean allowRequest() {
+    public synchronized boolean allowRequest() {
         long now = System.currentTimeMillis();
-        CircuitState currentState = state.get();
-
-        if (currentState == CircuitState.CLOSED) {
-            return true;
-        }
-
-        if (currentState == CircuitState.OPEN) {
-            if (now - lastFailureTime.get() >= resetTimeoutMs) {
-                if (state.compareAndSet(CircuitState.OPEN, CircuitState.HALF_OPEN)) {
+        return switch (state) {
+            case CLOSED -> true;
+            case OPEN -> {
+                if (now - lastFailureTime >= resetTimeoutMs) {
+                    // Single-flight: only the first caller past the timeout window
+                    // transitions to HALF_OPEN and acts as the probe.
+                    state = CircuitState.HALF_OPEN;
                     LOG.debug("Circuit breaker transitioning to HALF_OPEN");
-                    return true;
+                    yield true;
                 }
+                yield false;
             }
-            return false;
-        }
-
-        return true;
+            case HALF_OPEN -> true;
+        };
     }
 
-    public void recordSuccess() {
-        CircuitState current = state.get();
-        if (current == CircuitState.HALF_OPEN) {
-            state.set(CircuitState.CLOSED);
-            consecutiveFailures.set(0);
+    public synchronized void recordSuccess() {
+        if (state == CircuitState.HALF_OPEN) {
+            state = CircuitState.CLOSED;
+            consecutiveFailures = 0;
             LOG.debug("Circuit breaker transitioning to CLOSED");
         }
     }
 
-    public void recordFailure() {
-        CircuitState current = state.get();
-
-        // Only (re)arm the OPEN timer when we actually transition into OPEN.
-        // Updating lastFailureTime on every failure would keep pushing the
-        // HALF_OPEN deadline forward, so under a steady trickle of failures the
-        // breaker would stay OPEN forever and serve 100% 503s. (DEFECT #7)
-        if (current == CircuitState.HALF_OPEN) {
-            // A probe failed: go back to OPEN and restart the timer.
-            consecutiveFailures.incrementAndGet();
-            lastFailureTime.set(System.currentTimeMillis());
-            state.set(CircuitState.OPEN);
+    public synchronized void recordFailure() {
+        if (state == CircuitState.HALF_OPEN) {
+            // A probe failed: back to OPEN and restart the timer. Restarting
+            // (rather than updating on every failure) avoids a steady trickle of
+            // failures keeping the breaker OPEN forever. (DEFECT #7)
+            state = CircuitState.OPEN;
+            lastFailureTime = System.currentTimeMillis();
             LOG.debug("Circuit breaker transitioning back to OPEN after probe failure");
             return;
         }
 
-        // CLOSED (or OPEN): just count. The timer is armed only on the
-        // CLOSED -> OPEN transition below, never for failures while already OPEN.
-        int failures = consecutiveFailures.incrementAndGet();
-        if (current == CircuitState.CLOSED && failures >= failureThreshold) {
-            if (state.compareAndSet(CircuitState.CLOSED, CircuitState.OPEN)) {
-                lastFailureTime.set(System.currentTimeMillis());
-                LOG.debugf("Circuit breaker transitioning to OPEN (failures: %d)", failures);
-            }
+        // CLOSED or OPEN: the timer is armed only on the CLOSED -> OPEN
+        // transition below, never while already OPEN.
+        consecutiveFailures++;
+        if (state == CircuitState.CLOSED && consecutiveFailures >= failureThreshold) {
+            state = CircuitState.OPEN;
+            lastFailureTime = System.currentTimeMillis();
+            LOG.debugf("Circuit breaker transitioning to OPEN (failures: %d)", consecutiveFailures);
         }
     }
 
-    public CircuitState getState() {
-        return state.get();
+    public synchronized CircuitState getState() {
+        return state;
+    }
+
+    public CircuitBreakerConfig config() {
+        return config;
     }
 }

@@ -2,11 +2,14 @@ package com.gateway.filter;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.gateway.metrics.GatewayMetrics;
 import com.gateway.model.RouteConfig;
 import com.gateway.model.RouteConfig.CircuitBreakerConfig;
 import com.gateway.model.RouteConfig.FilterConfig;
 import com.gateway.testutil.MockRequest;
 import com.gateway.testutil.MockResponse;
+
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -22,7 +25,9 @@ class CircuitBreakerFilterTest {
 
     @BeforeEach
     void setUp() {
-        filter = new CircuitBreakerFilter();
+        // Each test gets its own registry so breaker state cannot leak between
+        // tests (mirrors the per-test isolation the old per-filter map gave).
+        filter = new CircuitBreakerFilter(new CircuitBreakerRegistry(), new GatewayMetrics(new SimpleMeterRegistry()));
         request = new MockRequest();
         response = new MockResponse();
         context = new FilterContext(request, response);
@@ -140,7 +145,7 @@ class CircuitBreakerFilterTest {
      */
     @Test
     void breakerRecoversFromSustainedLowRateFailures() throws Exception {
-        CircuitBreakerFilter isolated = new CircuitBreakerFilter();
+        CircuitBreakerFilter isolated = new CircuitBreakerFilter(new CircuitBreakerRegistry(), new GatewayMetrics(new SimpleMeterRegistry()));
         CircuitBreakerConfig cb = new CircuitBreakerConfig(3, 200); // threshold 3, timeout 200ms
 
         RouteConfig route = new RouteConfig("r-lowrate", "/**", null, "",

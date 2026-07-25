@@ -2,17 +2,35 @@ package com.gateway.integration;
 
 import static org.hamcrest.Matchers.*;
 
+import com.gateway.filter.CircuitBreakerRegistry;
+
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.TestProfile;
 import io.restassured.RestAssured;
 
+import jakarta.inject.Inject;
+
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 @QuarkusTest
 @TestProfile(IntegrationTestProfile.class)
 @QuarkusTestResource(MockBackendResource.class)
 class GatewayHttpIntegrationTest {
+
+    @Inject
+    CircuitBreakerRegistry circuitBreakerRegistry;
+
+    // The dead-upstream route opens its circuit breaker, which is process-wide
+    // state. Reset it after each test so a breaker left OPEN by one test does not
+    // leak into another (e.g. the trace-id assertions on the same route). The
+    // routeId is the config id `api-fail`, not the request path.
+    @AfterEach
+    void resetFailRouteBreaker() {
+        circuitBreakerRegistry.reset("api-fail");
+    }
+
 
     private static final String JWT_SECRET = "this-is-a-test-secret-key-that-is-at-least-32-chars!";
 
@@ -160,6 +178,37 @@ class GatewayHttpIntegrationTest {
                 .then()
                 .statusCode(200)
                 .body("path", equalTo("/api/users/list"));
+    }
+
+    // ---- TraceId propagation (OpenTelemetry -> response header) ----
+
+    @Test
+    void unmatchedRoute_responseCarriesTraceId() {
+        RestAssured.given()
+                .get("/no/such/route")
+                .then()
+                .statusCode(404)
+                .header("trace-id", matchesRegex("[0-9a-f]{32}"));
+    }
+
+    @Test
+    void successfulRoute_responseCarriesTraceId() {
+        RestAssured.given()
+                .get("/api/public/data")
+                .then()
+                .statusCode(200)
+                .header("trace-id", matchesRegex("[0-9a-f]{32}"));
+    }
+
+    @Test
+    void upstreamFailure_responseCarriesTraceId() {
+        // /api/fail/test hits a dead upstream → 502. The breaker is reset in
+        // @AfterEach so this stays deterministic regardless of test order.
+        RestAssured.given()
+                .get("/api/fail/test")
+                .then()
+                .statusCode(502)
+                .header("trace-id", matchesRegex("[0-9a-f]{32}"));
     }
 
     // ---- Health checks ----
