@@ -99,6 +99,13 @@
             <artifactId>quarkus-micrometer-registry-prometheus</artifactId>
         </dependency>
 
+        <!-- Tracing: auto-generates traceId/spanId per request and injects them
+             into the logging MDC, so %X{traceId} is available in log patterns. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-opentelemetry</artifactId>
+        </dependency>
+
         <!-- Health -->
         <dependency>
             <groupId>io.quarkus</groupId>

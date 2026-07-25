@@ -9,6 +9,7 @@ import com.gateway.filter.GrayReleaseFilter;
 import com.gateway.metrics.GatewayMetrics;
 import com.gateway.model.RouteConfig;
 
+import io.opentelemetry.api.trace.Span;
 import io.quarkus.vertx.web.Route;
 import io.quarkus.vertx.web.RouteFilter;
 import io.smallrye.common.annotation.RunOnVirtualThread;
@@ -108,6 +109,20 @@ public class GatewayRouter {
 
         stripClientGrayHeaders(context);
 
+        // Surface the OpenTelemetry traceId on the response so callers can
+        // correlate their request with gateway logs. Quarkus injects the active
+        // span's traceId into the Vert.x context for @Route handlers; we echo it
+        // back via a headers-end handler so every response branch (incl. errors)
+        // carries it without repeating the write at each return site.
+        String traceId = Span.current().getSpanContext().getTraceId();
+        if (traceId != null && !traceId.isEmpty()) {
+            context.addHeadersEndHandler(v -> {
+                if (!context.response().headers().contains("trace-id")) {
+                    context.response().headers().add("trace-id", traceId);
+                }
+            });
+        }
+
         metrics.incrementActiveConnections();
         Instant start = Instant.now();
         String routeId = "unknown";
@@ -162,7 +177,7 @@ public class GatewayRouter {
             }
         } catch (ConfigException e) {
             statusCode = 500;
-            LOG.errorf("Configuration error: %s", e.getMessage());
+            LOG.errorf(e, "Configuration error: %s", e.getMessage());
             if (!context.response().ended()) {
                 context.response().setStatusCode(500).end("Internal Server Error");
             }

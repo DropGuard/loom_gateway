@@ -21,13 +21,25 @@ quarkus:
         level: INFO
     console:
       enabled: true
-      format: "%d{HH:mm:ss} %-5p [%c{2.}] (%t) %s%e%n"
+      # traceId/spanId are injected into the MDC by quarkus-opentelemetry per
+      # request, so a single grep on %X{traceId} reconstructs a whole request
+      # across filter -> router -> upstream.
+      format: "%d{HH:mm:ss} %-5p [%c{2.}] [%X{traceId}] (%t) %s%e%n"
       level: INFO
   micrometer:
     enabled: true
     export:
       prometheus:
         enabled: true
+  otel:
+    # Generate traceId/spanId and populate the logging MDC, but do not push
+    # spans to a collector by default (no OTLP endpoint in dev/test). Flip
+    # 'enabled: true' and set otel.exporter.otlp.endpoint when a collector exists.
+    traces:
+      enabled: true
+    exporter:
+      otlp:
+        enabled: false
 
 gateway:
   config:
