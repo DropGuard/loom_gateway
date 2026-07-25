@@ -1,6 +1,7 @@
 package com.gateway.router;
 
 import com.gateway.exception.UpstreamException;
+import com.gateway.filter.CircuitBreakerFilter;
 import com.gateway.filter.FilterContext;
 import com.gateway.metrics.GatewayMetrics;
 
@@ -32,15 +33,17 @@ public class HttpProxyHandler {
     private static final Logger LOG = Logger.getLogger(HttpProxyHandler.class);
     private final HttpClient httpClient;
     private final GatewayMetrics metrics;
+    private final CircuitBreakerFilter circuitBreakerFilter;
 
     @Inject
-    public HttpProxyHandler(Vertx vertx, GatewayMetrics metrics,
+    public HttpProxyHandler(Vertx vertx, GatewayMetrics metrics, CircuitBreakerFilter circuitBreakerFilter,
                             @ConfigProperty(name = "gateway.timeout", defaultValue = "5000") int timeoutMs) {
         this.httpClient = vertx.createHttpClient(
                 new HttpClientOptions()
                         .setConnectTimeout(timeoutMs)
                         .setIdleTimeout(timeoutMs));
         this.metrics = metrics;
+        this.circuitBreakerFilter = circuitBreakerFilter;
         LOG.infof("HTTP client initialized with timeout: %dms", timeoutMs);
     }
 
@@ -123,13 +126,28 @@ public class HttpProxyHandler {
                         }
                     }).await().indefinitely();
 
+            // Request completed synchronously on this (virtual) thread. Report the
+            // outcome to the circuit breaker — this is the single source of truth
+            // for HTTP, symmetric with WebSocketProxyHandler's async recordOutcome.
+            reportOutcome(filterContext, true);
+
         } catch (Exception e) {
+            // Report the failure before rethrowing; the breaker is updated by the
+            // handler, not by the CircuitBreakerFilter's post-check.
+            reportOutcome(filterContext, false);
             Throwable cause = unwrapCompletionException(e);
             if (cause instanceof io.netty.handler.timeout.TimeoutException) {
                 throw new UpstreamException(504, "Gateway timeout for " + effectiveUpstream, cause);
             }
             throw new UpstreamException("Proxy failed for " + effectiveUpstream, cause);
         }
+    }
+
+    private void reportOutcome(FilterContext filterContext, boolean success) {
+        if (filterContext.route() == null) {
+            return;
+        }
+        circuitBreakerFilter.recordOutcome(filterContext.route().id(), success);
     }
 
     private static Throwable unwrapCompletionException(Throwable e) {

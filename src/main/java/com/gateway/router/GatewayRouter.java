@@ -5,6 +5,7 @@ import com.gateway.exception.ConfigException;
 import com.gateway.exception.UpstreamException;
 import com.gateway.filter.FilterChains;
 import com.gateway.filter.FilterContext;
+import com.gateway.filter.GrayReleaseFilter;
 import com.gateway.metrics.GatewayMetrics;
 import com.gateway.model.RouteConfig;
 
@@ -14,9 +15,13 @@ import io.smallrye.common.annotation.RunOnVirtualThread;
 import io.vertx.ext.web.RoutingContext;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
+
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import org.jboss.logging.Logger;
 
@@ -33,14 +38,17 @@ public class GatewayRouter {
     private final HttpProxyHandler httpProxyHandler;
     private final RouteConfigProvider routeConfigProvider;
     private final WebSocketProxyHandler webSocketProxyHandler;
+    private final List<String> grayHeaderNames;
 
     public GatewayRouter(FilterChains filterChains, GatewayMetrics metrics, HttpProxyHandler httpProxyHandler,
-                         RouteConfigProvider routeConfigProvider, WebSocketProxyHandler webSocketProxyHandler) {
+                         RouteConfigProvider routeConfigProvider, WebSocketProxyHandler webSocketProxyHandler,
+                         @ConfigProperty(name = "gateway.gray.headers") List<String> grayHeaderNames) {
         this.filterChains = filterChains;
         this.metrics = metrics;
         this.httpProxyHandler = httpProxyHandler;
         this.routeConfigProvider = routeConfigProvider;
         this.webSocketProxyHandler = webSocketProxyHandler;
+        this.grayHeaderNames = grayHeaderNames != null ? grayHeaderNames : List.of();
     }
 
     @RouteFilter
@@ -54,6 +62,8 @@ public class GatewayRouter {
             context.next();
             return;
         }
+
+        stripClientGrayHeaders(context);
 
         RouteConfig matchedRoute = routeConfigProvider.findMatchingRoute(
                 context.request().path(),
@@ -88,6 +98,8 @@ public class GatewayRouter {
             return;
         }
 
+        stripClientGrayHeaders(context);
+
         metrics.incrementActiveConnections();
         Instant start = Instant.now();
         String routeId = "unknown";
@@ -110,13 +122,7 @@ public class GatewayRouter {
             filterContext.route(matchedRoute);
 
             filterChains.http().execute(filterContext, () -> {
-                try {
-                    httpProxyHandler.proxy(context, filterContext);
-                    filterContext.proxySuccess(true);
-                } catch (Exception e) {
-                    filterContext.proxySuccess(false);
-                    throw e;
-                }
+                httpProxyHandler.proxy(context, filterContext);
             });
 
             statusCode = context.response().getStatusCode();
@@ -154,5 +160,17 @@ public class GatewayRouter {
         return connection != null
                 && connection.toLowerCase().contains("upgrade")
                 && "websocket".equalsIgnoreCase(upgrade);
+    }
+
+    /**
+     * Removes any client-supplied gray headers (configured globally via
+     * {@code gateway.gray.headers}). Gray routing must be driven only by a trusted
+     * layer, so a client must not be able to forge or strip these headers to
+     * influence canary routing. They are also not forwarded upstream.
+     */
+    private void stripClientGrayHeaders(RoutingContext context) {
+        for (String name : grayHeaderNames) {
+            context.request().headers().remove(name);
+        }
     }
 }

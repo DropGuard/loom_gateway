@@ -23,17 +23,25 @@ class GrayReleaseFilterTest {
         filter = new GrayReleaseFilter();
     }
 
-    private RouteConfig grayRoute(double percent, List<String> headerMatch) {
+    private RouteConfig grayRoutePercentage(double percent) {
         return new RouteConfig("r1", "/**", null, "backend:8080",
                 FilterConfig.builder()
-                        .gray(new GrayConfig(percent, "gray-backend:8080", headerMatch))
+                        .gray(new GrayConfig("percentage", "gray-backend:8080", percent, null, null))
+                        .build());
+    }
+
+    private RouteConfig grayRouteRule() {
+        return new RouteConfig("r1", "/**", null, "backend:8080",
+                FilterConfig.builder()
+                        .gray(new GrayConfig("rule", "gray-backend:8080", null,
+                                GrayReleaseFilter.TRUSTED_GRAY_HEADER, "true"))
                         .build());
     }
 
     private FilterContext contextWithJwtSub(String sub) {
         MockRequest req = new MockRequest();
         FilterContext ctx = new FilterContext(req, null);
-        ctx.route(grayRoute(30, null));
+        ctx.route(grayRoutePercentage(30));
         ctx.claims(Map.of("sub", (Object) sub));
         return ctx;
     }
@@ -42,7 +50,7 @@ class GrayReleaseFilterTest {
         MockRequest req = new MockRequest();
         req.headers.put("X-API-Key", key);
         FilterContext ctx = new FilterContext(req, null);
-        ctx.route(grayRoute(30, null));
+        ctx.route(grayRoutePercentage(30));
         return ctx;
     }
 
@@ -63,25 +71,37 @@ class GrayReleaseFilterTest {
         assertEquals("backend:8080", ctx.effectiveUpstream());
     }
 
-    // ---- Header match ----
+    // ---- Header match (trusted dedicated header only; client headers ignored) ----
 
     @Test
-    void headerMatch_routesToGray() throws Exception {
+    void ruleGray_routesToGray_whenTrustedHeaderSet() throws Exception {
         MockRequest req = new MockRequest();
-        req.headers.put("X-Canary", "true");
+        req.headers.put(GrayReleaseFilter.TRUSTED_GRAY_HEADER, "true");
         FilterContext ctx = new FilterContext(req, null);
-        ctx.route(grayRoute(0, List.of("X-Canary:true")));
+        ctx.route(grayRouteRule());
 
         applyFilter(ctx);
         assertEquals("gray-backend:8080", ctx.effectiveUpstream());
     }
 
     @Test
-    void headerMismatch_staysOnPrimary() throws Exception {
+    void ruleGray_ignoresClientSuppliedHeader() throws Exception {
+        // A client forging the client-facing header must NOT be routed to the canary.
         MockRequest req = new MockRequest();
-        req.headers.put("X-Canary", "false");
+        req.headers.put("X-Canary", "true");
         FilterContext ctx = new FilterContext(req, null);
-        ctx.route(grayRoute(0, List.of("X-Canary:true")));
+        ctx.route(grayRouteRule());
+
+        applyFilter(ctx);
+        assertEquals("backend:8080", ctx.effectiveUpstream());
+    }
+
+    @Test
+    void ruleGray_mismatch_staysOnPrimary() throws Exception {
+        MockRequest req = new MockRequest();
+        req.headers.put(GrayReleaseFilter.TRUSTED_GRAY_HEADER, "false");
+        FilterContext ctx = new FilterContext(req, null);
+        ctx.route(grayRouteRule());
 
         applyFilter(ctx);
         assertEquals("backend:8080", ctx.effectiveUpstream());
@@ -111,7 +131,7 @@ class GrayReleaseFilterTest {
 
     @Test
     void noIdentity_neverRoutesToGray() throws Exception {
-        RouteConfig route = grayRoute(100, null);
+        RouteConfig route = grayRoutePercentage(100);
         for (int i = 0; i < 100; i++) {
             FilterContext ctx = new FilterContext(new MockRequest(), null);
             ctx.route(route);
@@ -126,7 +146,7 @@ class GrayReleaseFilterTest {
     @Test
     void jwtSub_distributionMatchesPercent() throws Exception {
         double percent = 30.0;
-        RouteConfig route = grayRoute(percent, null);
+        RouteConfig route = grayRoutePercentage(percent);
         int grayCount = 0;
         int total = 1000;
 
@@ -148,7 +168,7 @@ class GrayReleaseFilterTest {
     @Test
     void apiKey_distributionMatchesPercent() throws Exception {
         double percent = 50.0;
-        RouteConfig route = grayRoute(percent, null);
+        RouteConfig route = grayRoutePercentage(percent);
         int grayCount = 0;
         int total = 1000;
 
@@ -175,7 +195,7 @@ class GrayReleaseFilterTest {
         MockRequest req = new MockRequest();
         req.headers.put("X-API-Key", "some-key");
         FilterContext ctx = new FilterContext(req, null);
-        ctx.route(grayRoute(100, null));
+        ctx.route(grayRoutePercentage(100));
         ctx.claims(Map.of("sub", (Object) "user-jwt"));
 
         applyFilter(ctx);
@@ -184,7 +204,7 @@ class GrayReleaseFilterTest {
         MockRequest req2 = new MockRequest();
         req2.headers.put("X-API-Key", "some-key");
         FilterContext ctx2 = new FilterContext(req2, null);
-        ctx2.route(grayRoute(100, null));
+        ctx2.route(grayRoutePercentage(100));
         ctx2.claims(Map.of("sub", (Object) "user-jwt"));
 
         applyFilter(ctx2);

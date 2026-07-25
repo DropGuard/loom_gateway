@@ -31,3 +31,9 @@ gateway:
   config:
     path: /config/routes.yaml
   timeout: 5000
+  gray:
+    # Client-facing gray headers stripped at ingress. A trusted layer must use a
+    # *different* dedicated header (e.g. X-Internal-Canary) to opt requests into
+    # the canary; clients can never forge or strip these.
+    headers:
+      - X-Canary

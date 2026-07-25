@@ -45,18 +45,14 @@ public class CircuitBreakerFilter implements Filter {
             return;
         }
 
-        try {
-            next.run();
-        } catch (Exception e) {
-            breaker.recordFailure();
-            throw e;
-        }
-
-        if (context.proxySuccess()) {
-            breaker.recordSuccess();
-        } else {
-            breaker.recordFailure();
-        }
+        // The outcome (success/failure) is reported by the downstream proxy handler
+        // via recordOutcome(routeId, success) once the request actually completes.
+        // This is intentional: HTTP requests finish synchronously inside next.run()
+        // (the proxy awaits the upstream), while WebSocket upgrades complete
+        // asynchronously in callbacks. Reporting from the handler — rather than a
+        // synchronous post-check here — keeps a single source of truth for both
+        // paths and avoids counting a successful async upgrade as a failure.
+        next.run();
     }
 
     public void recordOutcome(String routeId, boolean success) {

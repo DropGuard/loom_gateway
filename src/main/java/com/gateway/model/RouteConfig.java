@@ -86,8 +86,32 @@ public record RouteConfig(
     }
 
     public record GrayConfig(
-            @JsonProperty("trafficPercent") double trafficPercent,
+            @JsonProperty("mode") String mode,
             @JsonProperty("grayUpstream") String grayUpstream,
-            @JsonProperty("headerMatch") List<String> headerMatch) {
+            @JsonProperty("percent") Double percent,
+            @JsonProperty("ruleHeader") String ruleHeader,
+            @JsonProperty("ruleValue") String ruleValue) {
+
+        /** Percentage-based canary: a deterministic fraction of authenticated traffic. */
+        public static final String MODE_PERCENTAGE = "percentage";
+        /** Rule-based canary: a trusted layer opts specific requests in via a header. */
+        public static final String MODE_RULE = "rule";
+
+        public boolean isPercentage() {
+            return MODE_PERCENTAGE.equalsIgnoreCase(mode);
+        }
+
+        public boolean isRule() {
+            return MODE_RULE.equalsIgnoreCase(mode);
+        }
+
+        public boolean isEnabled() {
+            return grayUpstream() != null
+                    && (isPercentage() || isRule());
+        }
+
+        public double effectivePercent() {
+            return Math.min(Math.max(percent != null ? percent : 0, 0), 100);
+        }
     }
 }

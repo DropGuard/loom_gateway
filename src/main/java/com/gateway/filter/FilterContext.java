@@ -25,7 +25,6 @@ public class FilterContext {
     private RouteConfig route;
     private String grayUpstream;
     private Map<String, Object> claims;
-    private boolean proxySuccess;
     private Consumer<ResponseData> responseInterceptor;
     private final Map<String, Object> attributes = new ConcurrentHashMap<>();
 
@@ -80,14 +79,6 @@ public class FilterContext {
 
     public void targetUpstream(String upstream) {
         this.grayUpstream = upstream;
-    }
-
-    public boolean proxySuccess() {
-        return proxySuccess;
-    }
-
-    public void proxySuccess(boolean success) {
-        this.proxySuccess = success;
     }
 
     /**

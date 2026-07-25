@@ -81,7 +81,7 @@ class FilterChainIntegrationTest {
 
         for (int i = 0; i < 3; i++) {
             FilterContext ctx = newTestContext(route);
-            circuitBreakerFilter.apply(ctx, () -> ctx.proxySuccess(false));
+            circuitBreakerFilter.apply(ctx, () -> circuitBreakerFilter.recordOutcome("r1", false));
         }
 
         FilterContext ctx2 = newTestContext(route);
@@ -95,7 +95,7 @@ class FilterChainIntegrationTest {
     void testGrayReleaseChangesUpstream() throws Exception {
         RouteConfig route = new RouteConfig("r1", "/**", null, "backend:8080",
                 FilterConfig.builder()
-                        .gray(new GrayConfig(100, "gray-backend:8080", null))
+                        .gray(new GrayConfig("percentage", "gray-backend:8080", 100.0, null, null))
                         .build());
         FilterContext ctx = newTestContext(route);
         ctx.claims(java.util.Map.of("sub", (Object) "user-1"));
@@ -126,7 +126,7 @@ class FilterChainIntegrationTest {
                         .rateLimit(new RateLimitConfig(100, 1000))
                         .circuitBreaker(new CircuitBreakerConfig(5, 5000))
                         .cache(new CacheConfig(true, 60))
-                        .gray(new GrayConfig(0, null, null))
+                        .gray(new GrayConfig("percentage", "backend:8080", 0.0, null, null))
                         .build());
         ctx.route(route);
 

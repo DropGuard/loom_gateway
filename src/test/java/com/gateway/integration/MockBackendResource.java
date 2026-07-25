@@ -11,6 +11,7 @@ public class MockBackendResource implements QuarkusTestResourceLifecycleManager 
 
     private Vertx vertx;
     private HttpServer server;
+    private HttpServer canaryServer;
 
     @Override
     public Map<String, String> start() {
@@ -49,6 +50,13 @@ public class MockBackendResource implements QuarkusTestResourceLifecycleManager 
                         json(req, new JsonObject().put("limited", true));
                     } else if (path.startsWith("/api/fail")) {
                         req.response().setStatusCode(500).end("Internal Server Error");
+                    } else if (path.startsWith("/api/gray")) {
+                        // Primary backend for gray routes: reports canary=false and
+                        // echoes whether the client-supplied X-Canary header reached it.
+                        JsonObject json = new JsonObject()
+                                .put("canary", false)
+                                .put("receivedCanaryHeader", req.getHeader("X-Canary"));
+                        json(req, json);
                     } else {
                         req.response().setStatusCode(404).end("Not Found");
                     }
@@ -58,7 +66,25 @@ public class MockBackendResource implements QuarkusTestResourceLifecycleManager 
                 .toCompletableFuture()
                 .join();
 
-        System.out.println("[MockBackend] Started on port 19999");
+        // Canary backend: proves a request was actually routed to the gray upstream.
+        canaryServer = vertx.createHttpServer()
+                .requestHandler(req -> {
+                    if (req.path().startsWith("/api/gray")) {
+                        JsonObject json = new JsonObject()
+                                .put("canary", true)
+                                .put("receivedCanaryHeader", req.getHeader("X-Canary"))
+                                .put("receivedTrustedHeader", req.getHeader("X-Internal-Canary"));
+                        json(req, json);
+                    } else {
+                        req.response().setStatusCode(404).end("Not Found");
+                    }
+                })
+                .listen(19997)
+                .toCompletionStage()
+                .toCompletableFuture()
+                .join();
+
+        System.out.println("[MockBackend] Started on port 19999 (primary) and 19997 (canary)");
         return Map.of();
     }
 
@@ -72,6 +98,9 @@ public class MockBackendResource implements QuarkusTestResourceLifecycleManager 
     public void stop() {
         if (server != null) {
             server.close().toCompletionStage().toCompletableFuture().join();
+        }
+        if (canaryServer != null) {
+            canaryServer.close().toCompletionStage().toCompletableFuture().join();
         }
         if (vertx != null) {
             vertx.close().toCompletionStage().toCompletableFuture().join();

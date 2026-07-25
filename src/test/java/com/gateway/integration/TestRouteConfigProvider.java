@@ -1,6 +1,7 @@
 package com.gateway.integration;
 
 import com.gateway.config.RouteConfigProvider;
+import com.gateway.filter.GrayReleaseFilter;
 import com.gateway.model.GatewayConfig;
 import com.gateway.model.RouteConfig;
 import com.gateway.model.RouteConfig.*;
@@ -68,6 +69,34 @@ public class TestRouteConfigProvider implements RouteConfigProvider {
                 new RouteConfig("ws-public", "/ws/public/**", List.of("GET"), "localhost:19999",
                         FilterConfig.builder()
                                 .auth(new AuthConfig("none", false, null, null))
+                                .build()),
+
+                // WebSocket route whose upstream never listens (port 19998), so every
+                // upgrade fails. Used to verify the circuit breaker opens on repeated
+                // WS failures and stays closed across repeated WS successes.
+                new RouteConfig("ws-fail", "/ws/fail/**", List.of("GET"), "localhost:19998",
+                        FilterConfig.builder()
+                                .auth(new AuthConfig("none", false, null, null))
+                                .circuitBreaker(new CircuitBreakerConfig(3, 5000))
+                                .build()),
+
+                // Gray route: primary on 19999, canary on 19997.
+                // mode=percentage with percent=100 and an api-key identity guarantees
+                // (deterministically) that every request routes to the canary, so tests
+                // can assert the upstream target.
+                new RouteConfig("api-gray", "/api/gray/**", List.of("GET"), "localhost:19999",
+                        FilterConfig.builder()
+                                .auth(new AuthConfig("api-key", true, null, List.of("pk-gray-key")))
+                                .gray(new GrayConfig("percentage", "localhost:19997", 100.0, null, null))
+                                .build()),
+
+                // Rule-based gray route: a trusted layer opts requests in via the
+                // dedicated X-Internal-Canary header. Client X-Canary is stripped.
+                new RouteConfig("api-gray-rule", "/api/gray-rule/**", List.of("GET"), "localhost:19999",
+                        FilterConfig.builder()
+                                .auth(new AuthConfig("api-key", true, null, List.of("pk-gray-key")))
+                                .gray(new GrayConfig("rule", "localhost:19997", null,
+                                        GrayReleaseFilter.TRUSTED_GRAY_HEADER, "true"))
                                 .build()));
 
         this.config = new GatewayConfig(routes);

@@ -18,9 +18,9 @@ routes:
         enabled: true
         ttlSeconds: 60
       gray:
-        trafficPercent: 10
+        mode: percentage
         grayUpstream: user-service-v2.default.svc.cluster.local:8080
-        headerMatch: ["X-Canary:true"]
+        percent: 10
 
   - id: api-public
     path: /api/public/**
