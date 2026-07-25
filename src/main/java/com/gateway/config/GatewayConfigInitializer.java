@@ -2,19 +2,21 @@ package com.gateway.config;
 
 import io.quarkus.runtime.StartupEvent;
 
+import com.gateway.model.GatewayConfig;
+
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-
-import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 /**
  * Initializes the gateway configuration on application startup.
+ *
+ * Config loading is owned by the {@link RouteConfigLoader} (a {@link RouteConfigProvider}),
+ * which auto-loads on construction. This initializer only observes startup to log/validate.
+ * Injecting the interface (not the concrete loader) is what lets tests supply a different
+ * config source via CDI alternatives (DEFECT T1 fix).
  */
 @ApplicationScoped
 public class GatewayConfigInitializer {
@@ -22,29 +24,16 @@ public class GatewayConfigInitializer {
     private static final Logger LOG = Logger.getLogger(GatewayConfigInitializer.class);
 
     @Inject
-    RouteConfigLoader routeConfigLoader;
-
-    @ConfigProperty(name = "gateway.config.path", defaultValue = "/config/routes.yaml")
-    String configPath;
+    RouteConfigProvider routeConfigProvider;
 
     void onStart(@Observes StartupEvent ev) {
-        LOG.info("Initializing gateway configuration");
-        String resolvedPath = resolveConfigPath(configPath);
-        routeConfigLoader.loadFromPath(resolvedPath);
-    }
-
-    private String resolveConfigPath(String path) {
-        // If the configured path exists, use it
-        if (Files.exists(Paths.get(path))) {
-            return path;
+        GatewayConfig config = routeConfigProvider.getConfig();
+        if (config == null || config.routes() == null || config.routes().isEmpty()) {
+            // DEFECT #11: a missing/empty config must be loud.
+            LOG.errorf("CRITICAL: gateway started with NO routes (configMissing). Readiness will " +
+                    "stay DOWN and Kubernetes will never restart this pod. Check gateway.config.path.");
+        } else {
+            LOG.infof("Gateway configuration initialized with %d routes", config.routes().size());
         }
-        // Fallback: try relative path (for local dev with `mvn quarkus:dev`)
-        Path relative = Paths.get("config", "routes.yaml");
-        if (Files.exists(relative)) {
-            LOG.infof("Config not found at '%s', using relative path '%s'", path, relative);
-            return relative.toString();
-        }
-        LOG.warnf("Config not found at '%s' or '%s'", path, relative);
-        return path;
     }
 }

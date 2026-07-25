@@ -3,16 +3,18 @@ quarkus:
     port: 8080
     host: 0.0.0.0
     body:
-      handle-file-uploads: true
+      # Gateway proxies JSON APIs; file uploads are not handled upstream, so
+      # multipart handling is disabled (DEFECT review: keep attack surface minimal).
+      handle-file-uploads: false
     limits:
       max-body-size: 2M
-    cors:
-      enabled: true
-      origins: /.*/
-      methods: GET,POST,PUT,DELETE,PATCH,OPTIONS
-      headers: Authorization,Content-Type,X-API-Key
-      exposed-headers: X-Request-Id
-      access-control-max-age: 86400
+  # Graceful shutdown (DEFECT #19): let in-flight requests finish before the
+  # pod stops. Quarkus handles the shutdown sequence itself -- we only make the
+  # timeout explicit and auditable instead of relying on the 30s default.
+  # MUST be <= Kubernetes terminationGracePeriodSeconds (default 30s) once this
+  # is deployed, or the kubelet SIGKILLs the pod before Quarkus drains traffic.
+  shutdown:
+    timeout: 30s
   log:
     category:
       "com.gateway":
@@ -31,6 +33,15 @@ gateway:
   config:
     path: /config/routes.yaml
   timeout: 5000
+  cors:
+    # Gateway-owned CORS (the framework's quarkus.http.cors does not apply to
+    # @Route reactive routes, so the gateway writes these headers itself).
+    enabled: true
+    origins: ".*"
+    methods: GET,POST,PUT,DELETE,PATCH,OPTIONS
+    headers: Authorization,Content-Type,X-API-Key
+    exposed-headers: X-Request-Id
+    max-age: 86400
   gray:
     # Client-facing gray headers stripped at ingress. A trusted layer must use a
     # *different* dedicated header (e.g. X-Internal-Canary) to opt requests into

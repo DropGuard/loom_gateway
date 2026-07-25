@@ -1,0 +1,129 @@
+# Integration-test config fixture. Mirrors the production routes.yaml STRUCTURE
+# with upstreams remapped to the in-test MockBackend (primary :19999, canary
+# :19997, deliberate-failure :19998). This is the single file-based config all
+# @QuarkusTest integration tests load, via IntegrationTestProfile overriding
+# gateway.config.path. It is shaped by the test contracts it serves -- not a
+# copy of the production config. JWT secrets are literal (Jackson does not
+# resolve ${...} placeholders).
+routes:
+  - id: api-users
+    path: /api/users/**
+    methods: [GET, POST, PUT, DELETE]
+    upstream: localhost:19999
+    filters:
+      auth:
+        type: jwt
+        required: true
+        secret: "this-is-a-test-secret-key-that-is-at-least-32-chars!"
+      rateLimit:
+        limit: 1000
+        windowMs: 1000
+      circuitBreaker:
+        failureThreshold: 5
+        resetTimeoutMs: 30000
+
+  - id: api-public
+    path: /api/public/**
+    methods: [GET]
+    upstream: localhost:19999
+    filters:
+      auth:
+        type: none
+        required: false
+      cache:
+        enabled: true
+        ttlSeconds: 30
+
+  - id: api-key-service
+    path: /api/external/**
+    methods: [GET, POST]
+    upstream: localhost:19999
+    filters:
+      auth:
+        type: api-key
+        required: true
+        apiKeys:
+          - "pk-test-key-123"
+      rateLimit:
+        limit: 100
+        windowMs: 1000
+
+  - id: api-limited
+    path: /api/limited/**
+    methods: [GET]
+    upstream: localhost:19999
+    filters:
+      auth:
+        type: none
+        required: false
+      rateLimit:
+        limit: 3
+        windowMs: 1000
+
+  - id: api-fail
+    path: /api/fail/**
+    methods: [GET]
+    upstream: localhost:19998
+    filters:
+      auth:
+        type: none
+        required: false
+      circuitBreaker:
+        failureThreshold: 3
+        resetTimeoutMs: 30000
+
+  - id: api-gray
+    path: /api/gray/**
+    methods: [GET]
+    upstream: localhost:19999
+    filters:
+      auth:
+        type: api-key
+        required: true
+        apiKeys:
+          - "pk-gray-key"
+      gray:
+        mode: percentage
+        grayUpstream: localhost:19997
+        percent: 100
+
+  - id: api-gray-rule
+    path: /api/gray-rule/**
+    methods: [GET]
+    upstream: localhost:19999
+    filters:
+      auth:
+        type: api-key
+        required: true
+        apiKeys:
+          - "pk-gray-key"
+      gray:
+        mode: rule
+        ruleHeader: X-Internal-Canary
+        ruleValue: "true"
+        grayUpstream: localhost:19997
+
+  - id: ws-chat
+    path: /ws/chat/**
+    methods: [GET]
+    upstream: localhost:19999
+    filters:
+      auth:
+        type: jwt
+        required: true
+        secret: "this-is-a-test-secret-key-that-is-at-least-32-chars!"
+      circuitBreaker:
+        failureThreshold: 5
+        resetTimeoutMs: 30000
+
+  - id: ws-public
+    path: /ws/public/**
+    methods: [GET]
+    upstream: localhost:19999
+    filters:
+      auth:
+        type: none
+        required: false
+      circuitBreaker:
+        failureThreshold: 10
+        resetTimeoutMs: 15000

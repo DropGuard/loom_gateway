@@ -5,21 +5,32 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import com.gateway.model.GatewayConfig;
 import com.gateway.model.RouteConfig;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Event;
 import jakarta.inject.Inject;
 
 import java.io.IOException;
-import java.nio.file.*;
+import java.nio.file.Files;
+import java.nio.file.FileSystems;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardWatchEventKinds;
+import java.nio.file.WatchEvent;
+import java.nio.file.WatchKey;
+import java.nio.file.WatchService;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 /**
- * Route configuration loader with file watching support. Loads routes.yaml on
- * startup and watches for file changes to hot-reload.
+ * {@link RouteConfigProvider} that loads routes from a YAML file on the
+ * filesystem. In production this is the mounted ConfigMap (/config/routes.yaml);
+ * tests override the {@code gateway.config.path} property to point at a test
+ * file. The source is resolved here and surfaced only through the interface.
  */
 @ApplicationScoped
 public class RouteConfigLoader implements RouteConfigProvider {
@@ -33,60 +44,76 @@ public class RouteConfigLoader implements RouteConfigProvider {
     @Inject
     Event<RouteConfigReloadedEvent> reloadEvent;
 
-    /**
-     * Load configuration from the specified YAML file path. Must be called at
-     * application startup.
-     */
-    public void loadFromPath(String configPath) {
-        LOG.infof("Loading route configuration from: %s", configPath);
-        Path path = Paths.get(configPath);
+    @ConfigProperty(name = "gateway.config.path", defaultValue = "/config/routes.yaml")
+    String configPath;
 
-        if (!Files.exists(path)) {
+    @PostConstruct
+    void load() {
+        String resolved = resolveConfigPath(configPath);
+        loadFromPath(resolved);
+    }
+
+    /**
+     * Configured path first, then a relative fallback for local dev
+     * (mvn quarkus:dev), then the configured path as-is.
+     */
+    private String resolveConfigPath(String path) {
+        if (Files.exists(Paths.get(path))) {
+            return path;
+        }
+        Path relative = Paths.get("config", "routes.yaml");
+        if (Files.exists(relative)) {
+            LOG.infof("Config not found at '%s', using relative path '%s'", path, relative);
+            return relative.toString();
+        }
+        LOG.warnf("Config not found at '%s' or '%s'", path, relative);
+        return path;
+    }
+
+    void loadFromPath(String path) {
+        LOG.infof("Loading route configuration from: %s", path);
+        Path configFile = Paths.get(path);
+
+        if (!Files.exists(configFile)) {
             // DEFECT #11: a missing critical config must be loud. The gateway
             // would otherwise start with EMPTY routes, report readiness DOWN
             // forever while liveness stays UP, and serve 404s with no restart.
             LOG.errorf("CRITICAL: Configuration file not found: %s. Gateway will start with " +
                     "NO routes (readiness DOWN). Fix the path or the file, or Kubernetes " +
-                    "will never restart this pod.", configPath);
+                    "will never restart this pod.", path);
             return;
         }
 
         try {
-            GatewayConfig newConfig = yamlMapper.readValue(path.toFile(), GatewayConfig.class);
+            GatewayConfig newConfig = yamlMapper.readValue(configFile.toFile(), GatewayConfig.class);
             applyNewConfig(newConfig);
-            startWatching(path);
+            startWatching(configFile);
         } catch (IOException e) {
-            LOG.errorf(e, "Failed to load configuration from: %s", configPath);
+            LOG.errorf(e, "Failed to load configuration from: %s", path);
         }
     }
 
-    /**
-     * Start watching the configuration file for changes.
-     */
-    private void startWatching(Path configPath) {
+    private void startWatching(Path configFile) {
         Thread.ofVirtual().name("config-watcher").start(() -> {
             try (WatchService watchService = FileSystems.getDefault().newWatchService()) {
-                Path parentDir = configPath.getParent();
-
+                Path parentDir = configFile.getParent();
                 if (parentDir != null) {
                     parentDir.register(watchService,
                             StandardWatchEventKinds.ENTRY_MODIFY,
                             StandardWatchEventKinds.ENTRY_CREATE);
                 }
 
-                LOG.infof("Started watching configuration file: %s", configPath);
+                LOG.infof("Started watching configuration file: %s", configFile);
 
                 while (!Thread.currentThread().isInterrupted()) {
                     WatchKey key = watchService.take();
-
                     for (WatchEvent<?> event : key.pollEvents()) {
                         Path changedFile = (Path) event.context();
-                        if (configPath.getFileName().toString().equals(changedFile.toString())) {
+                        if (configFile.getFileName().toString().equals(changedFile.toString())) {
                             LOG.infof("Configuration file changed, reloading: %s", changedFile);
-                            reloadConfig(configPath);
+                            reloadConfig(configFile);
                         }
                     }
-
                     key.reset();
                 }
             } catch (InterruptedException e) {
@@ -98,12 +125,9 @@ public class RouteConfigLoader implements RouteConfigProvider {
         });
     }
 
-    /**
-     * Reload configuration from file.
-     */
-    private void reloadConfig(Path configPath) {
+    private void reloadConfig(Path configFile) {
         try {
-            GatewayConfig newConfig = yamlMapper.readValue(configPath.toFile(), GatewayConfig.class);
+            GatewayConfig newConfig = yamlMapper.readValue(configFile.toFile(), GatewayConfig.class);
             applyNewConfig(newConfig);
             reloadEvent.fire(new RouteConfigReloadedEvent(newConfig));
         } catch (IOException e) {
@@ -111,9 +135,6 @@ public class RouteConfigLoader implements RouteConfigProvider {
         }
     }
 
-    /**
-     * Apply new configuration and rebuild compiled patterns atomically.
-     */
     void applyNewConfig(GatewayConfig newConfig) {
         Map<String, Pattern> newPatterns = new ConcurrentHashMap<>();
         if (newConfig.routes() != null) {
@@ -121,16 +142,12 @@ public class RouteConfigLoader implements RouteConfigProvider {
                 newPatterns.put(route.id(), compilePathPattern(route.path()));
             }
         }
-        // Atomic swap: patterns and config update together
         this.compiledPatterns = newPatterns;
         this.config = newConfig;
         LOG.infof("Applied configuration with %d routes",
                 newConfig.routes() != null ? newConfig.routes().size() : 0);
     }
 
-    /**
-     * Convert route path pattern (e.g., /api/**) to regex pattern.
-     */
     private Pattern compilePathPattern(String pathPattern) {
         String regex;
         if (pathPattern.endsWith("/**")) {
@@ -145,9 +162,7 @@ public class RouteConfigLoader implements RouteConfigProvider {
         return Pattern.compile("^" + regex + "$");
     }
 
-    /**
-     * Find matching route for the given request path and method.
-     */
+    @Override
     public RouteConfig findMatchingRoute(String requestPath, String method) {
         GatewayConfig currentConfig = this.config;
         Map<String, Pattern> currentPatterns = this.compiledPatterns;
@@ -168,6 +183,7 @@ public class RouteConfigLoader implements RouteConfigProvider {
         return null;
     }
 
+    @Override
     public GatewayConfig getConfig() {
         return config;
     }

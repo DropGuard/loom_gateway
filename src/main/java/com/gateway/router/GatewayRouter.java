@@ -20,6 +20,7 @@ import jakarta.inject.Inject;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.regex.Pattern;
 
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
@@ -39,16 +40,24 @@ public class GatewayRouter {
     private final RouteConfigProvider routeConfigProvider;
     private final WebSocketProxyHandler webSocketProxyHandler;
     private final List<String> grayHeaderNames;
+    private final CorsConfig corsConfig;
 
     public GatewayRouter(FilterChains filterChains, GatewayMetrics metrics, HttpProxyHandler httpProxyHandler,
                          RouteConfigProvider routeConfigProvider, WebSocketProxyHandler webSocketProxyHandler,
-                         @ConfigProperty(name = "gateway.gray.headers") List<String> grayHeaderNames) {
+                         @ConfigProperty(name = "gateway.gray.headers") List<String> grayHeaderNames,
+                         @ConfigProperty(name = "gateway.cors.enabled") boolean corsEnabled,
+                         @ConfigProperty(name = "gateway.cors.origins") String corsOrigins,
+                         @ConfigProperty(name = "gateway.cors.methods") String corsMethods,
+                         @ConfigProperty(name = "gateway.cors.headers") String corsHeaders,
+                         @ConfigProperty(name = "gateway.cors.exposed-headers") String corsExposedHeaders,
+                         @ConfigProperty(name = "gateway.cors.max-age") long corsMaxAge) {
         this.filterChains = filterChains;
         this.metrics = metrics;
         this.httpProxyHandler = httpProxyHandler;
         this.routeConfigProvider = routeConfigProvider;
         this.webSocketProxyHandler = webSocketProxyHandler;
         this.grayHeaderNames = grayHeaderNames != null ? grayHeaderNames : List.of();
+        this.corsConfig = new CorsConfig(corsEnabled, corsOrigins, corsMethods, corsHeaders, corsExposedHeaders, corsMaxAge);
     }
 
     @RouteFilter
@@ -106,6 +115,19 @@ public class GatewayRouter {
         int statusCode = 200;
 
         try {
+            // CORS: the framework's quarkus.http.cors does not apply to @Route
+            // reactive routes, so the gateway owns CORS header handling here.
+            // Preflight (OPTIONS + Access-Control-Request-Method) is answered
+            // directly, before route matching, since it is method-agnostic.
+            if (corsConfig.enabled()
+                    && context.request().getHeader("Origin") != null
+                    && "OPTIONS".equals(context.request().method().toString())
+                    && context.request().getHeader("Access-Control-Request-Method") != null) {
+                applyCorsHeaders(context);
+                context.response().setStatusCode(200).end();
+                return;
+            }
+
             RouteConfig matchedRoute = routeConfigProvider.findMatchingRoute(
                     context.request().path(),
                     context.request().method().toString());
@@ -113,6 +135,12 @@ public class GatewayRouter {
                 statusCode = 404;
                 context.response().setStatusCode(404).end("No matching route");
                 return;
+            }
+
+            // Simple CORS request: attach the allow-origin header; it is sent
+            // before the proxy writes the body.
+            if (corsConfig.enabled() && context.request().getHeader("Origin") != null) {
+                applyCorsHeaders(context);
             }
 
             routeId = matchedRoute.id();
@@ -171,6 +199,64 @@ public class GatewayRouter {
     private void stripClientGrayHeaders(RoutingContext context) {
         for (String name : grayHeaderNames) {
             context.request().headers().remove(name);
+        }
+    }
+
+    /**
+     * Writes the CORS response headers for a request that carries an Origin. The
+     * origin allow-list is matched as a regex; an unmatched origin is not echoed
+     * back (the header is simply omitted), so cross-origin requests from
+     * disallowed origins are not granted access.
+     */
+    private void applyCorsHeaders(RoutingContext context) {
+        String origin = context.request().getHeader("Origin");
+        if (corsConfig.originPattern() != null && corsConfig.originPattern().matcher(origin).matches()) {
+            context.response().putHeader("Access-Control-Allow-Origin", origin);
+        }
+        if (!corsConfig.methods().isEmpty()) {
+            context.response().putHeader("Access-Control-Allow-Methods", String.join(",", corsConfig.methods()));
+        }
+        if (!corsConfig.headers().isEmpty()) {
+            context.response().putHeader("Access-Control-Allow-Headers", String.join(",", corsConfig.headers()));
+        }
+        if (!corsConfig.exposedHeaders().isEmpty()) {
+            context.response().putHeader("Access-Control-Expose-Headers", String.join(",", corsConfig.exposedHeaders()));
+        }
+        if (corsConfig.maxAge() > 0) {
+            context.response().putHeader("Access-Control-Max-Age", Long.toString(corsConfig.maxAge()));
+        }
+    }
+
+    /**
+     * Resolved CORS configuration for the gateway-owned CORS handling.
+     */
+    private record CorsConfig(
+            boolean enabled,
+            Pattern originPattern,
+            List<String> methods,
+            List<String> headers,
+            List<String> exposedHeaders,
+            long maxAge) {
+        CorsConfig(boolean enabled, String origins, String methods, String headers,
+                   String exposedHeaders, long maxAge) {
+            this(enabled,
+                    origins != null && !origins.isBlank()
+                            ? Pattern.compile("*".equals(origins.trim()) ? ".*" : origins)
+                            : null,
+                    splitCsv(methods),
+                    splitCsv(headers),
+                    splitCsv(exposedHeaders),
+                    maxAge);
+        }
+
+        private static List<String> splitCsv(String value) {
+            if (value == null || value.isBlank()) {
+                return List.of();
+            }
+            return java.util.Arrays.stream(value.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .toList();
         }
     }
 }
