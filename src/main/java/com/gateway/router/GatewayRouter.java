@@ -20,7 +20,6 @@ import jakarta.inject.Inject;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.regex.Pattern;
 
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
@@ -40,7 +39,7 @@ public class GatewayRouter {
     private final RouteConfigProvider routeConfigProvider;
     private final WebSocketProxyHandler webSocketProxyHandler;
     private final List<String> grayHeaderNames;
-    private final CorsConfig corsConfig;
+    private final GatewayCorsPolicy corsPolicy;
 
     public GatewayRouter(FilterChains filterChains, GatewayMetrics metrics, HttpProxyHandler httpProxyHandler,
                          RouteConfigProvider routeConfigProvider, WebSocketProxyHandler webSocketProxyHandler,
@@ -57,7 +56,7 @@ public class GatewayRouter {
         this.routeConfigProvider = routeConfigProvider;
         this.webSocketProxyHandler = webSocketProxyHandler;
         this.grayHeaderNames = grayHeaderNames != null ? grayHeaderNames : List.of();
-        this.corsConfig = new CorsConfig(corsEnabled, corsOrigins, corsMethods, corsHeaders, corsExposedHeaders, corsMaxAge);
+        this.corsPolicy = new GatewayCorsPolicy(corsEnabled, corsOrigins, corsMethods, corsHeaders, corsExposedHeaders, corsMaxAge);
     }
 
     @RouteFilter
@@ -119,11 +118,10 @@ public class GatewayRouter {
             // reactive routes, so the gateway owns CORS header handling here.
             // Preflight (OPTIONS + Access-Control-Request-Method) is answered
             // directly, before route matching, since it is method-agnostic.
-            if (corsConfig.enabled()
-                    && context.request().getHeader("Origin") != null
-                    && "OPTIONS".equals(context.request().method().toString())
-                    && context.request().getHeader("Access-Control-Request-Method") != null) {
-                applyCorsHeaders(context);
+            String corsOrigin = context.request().getHeader("Origin");
+            if (corsPolicy.isPreflight(corsOrigin, context.request().method().toString(),
+                    context.request().getHeader("Access-Control-Request-Method") != null)) {
+                corsPolicy.buildHeaders(corsOrigin).forEach(context.response()::putHeader);
                 context.response().setStatusCode(200).end();
                 return;
             }
@@ -139,8 +137,8 @@ public class GatewayRouter {
 
             // Simple CORS request: attach the allow-origin header; it is sent
             // before the proxy writes the body.
-            if (corsConfig.enabled() && context.request().getHeader("Origin") != null) {
-                applyCorsHeaders(context);
+            if (corsPolicy.isCorsRequest(corsOrigin)) {
+                corsPolicy.buildHeaders(corsOrigin).forEach(context.response()::putHeader);
             }
 
             routeId = matchedRoute.id();
@@ -199,64 +197,6 @@ public class GatewayRouter {
     private void stripClientGrayHeaders(RoutingContext context) {
         for (String name : grayHeaderNames) {
             context.request().headers().remove(name);
-        }
-    }
-
-    /**
-     * Writes the CORS response headers for a request that carries an Origin. The
-     * origin allow-list is matched as a regex; an unmatched origin is not echoed
-     * back (the header is simply omitted), so cross-origin requests from
-     * disallowed origins are not granted access.
-     */
-    private void applyCorsHeaders(RoutingContext context) {
-        String origin = context.request().getHeader("Origin");
-        if (corsConfig.originPattern() != null && corsConfig.originPattern().matcher(origin).matches()) {
-            context.response().putHeader("Access-Control-Allow-Origin", origin);
-        }
-        if (!corsConfig.methods().isEmpty()) {
-            context.response().putHeader("Access-Control-Allow-Methods", String.join(",", corsConfig.methods()));
-        }
-        if (!corsConfig.headers().isEmpty()) {
-            context.response().putHeader("Access-Control-Allow-Headers", String.join(",", corsConfig.headers()));
-        }
-        if (!corsConfig.exposedHeaders().isEmpty()) {
-            context.response().putHeader("Access-Control-Expose-Headers", String.join(",", corsConfig.exposedHeaders()));
-        }
-        if (corsConfig.maxAge() > 0) {
-            context.response().putHeader("Access-Control-Max-Age", Long.toString(corsConfig.maxAge()));
-        }
-    }
-
-    /**
-     * Resolved CORS configuration for the gateway-owned CORS handling.
-     */
-    private record CorsConfig(
-            boolean enabled,
-            Pattern originPattern,
-            List<String> methods,
-            List<String> headers,
-            List<String> exposedHeaders,
-            long maxAge) {
-        CorsConfig(boolean enabled, String origins, String methods, String headers,
-                   String exposedHeaders, long maxAge) {
-            this(enabled,
-                    origins != null && !origins.isBlank()
-                            ? Pattern.compile("*".equals(origins.trim()) ? ".*" : origins)
-                            : null,
-                    splitCsv(methods),
-                    splitCsv(headers),
-                    splitCsv(exposedHeaders),
-                    maxAge);
-        }
-
-        private static List<String> splitCsv(String value) {
-            if (value == null || value.isBlank()) {
-                return List.of();
-            }
-            return java.util.Arrays.stream(value.split(","))
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .toList();
         }
     }
 }
