@@ -1,5 +1,6 @@
 package com.gateway.router;
 
+import com.gateway.exception.ConfigException;
 import com.gateway.filter.CircuitBreakerFilter;
 import com.gateway.filter.FilterContext;
 import com.gateway.metrics.GatewayMetrics;
@@ -33,7 +34,12 @@ public class WebSocketProxyHandler {
     }
 
     public void proxy(RoutingContext context, FilterContext filterContext) {
-        UpstreamAddress upstream = UpstreamAddress.parse(filterContext.effectiveUpstream());
+        String effectiveUpstream = filterContext.effectiveUpstream();
+        if (effectiveUpstream == null || effectiveUpstream.isBlank()) {
+            throw new ConfigException("No upstream resolved for route '"
+                    + (filterContext.route() != null ? filterContext.route().id() : "?") + "'");
+        }
+        UpstreamAddress upstream = UpstreamAddress.parse(effectiveUpstream);
         String host = upstream.host();
         int port = upstream.port();
         boolean ssl = upstream.ssl();
@@ -44,7 +50,7 @@ public class WebSocketProxyHandler {
             uri += "?" + queryString;
         }
 
-        String routeId = filterContext.route().id();
+        String routeId = filterContext.route() != null ? filterContext.route().id() : "?";
 
         WebSocketConnectOptions opts = new WebSocketConnectOptions()
                 .setHost(host)

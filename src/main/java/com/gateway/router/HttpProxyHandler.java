@@ -1,5 +1,6 @@
 package com.gateway.router;
 
+import com.gateway.exception.ConfigException;
 import com.gateway.exception.UpstreamException;
 import com.gateway.filter.CircuitBreakerFilter;
 import com.gateway.filter.FilterContext;
@@ -54,7 +55,12 @@ public class HttpProxyHandler {
         io.vertx.core.http.HttpServerRequest incomingReq = context.request();
         HttpMethod method = HttpMethod.valueOf(incomingReq.method().name());
 
-        UpstreamAddress upstream = UpstreamAddress.parse(filterContext.effectiveUpstream());
+        String effectiveUpstream = filterContext.effectiveUpstream();
+        if (effectiveUpstream == null || effectiveUpstream.isBlank()) {
+            throw new ConfigException("No upstream resolved for route '"
+                    + (filterContext.route() != null ? filterContext.route().id() : "?") + "'");
+        }
+        UpstreamAddress upstream = UpstreamAddress.parse(effectiveUpstream);
         String host = upstream.host();
         int port = upstream.port();
         boolean ssl = upstream.ssl();
@@ -65,7 +71,6 @@ public class HttpProxyHandler {
             uri += "?" + queryString;
         }
 
-        String effectiveUpstream = filterContext.effectiveUpstream();
         LOG.debugf("Forwarding to: %s:%d%s", host, port, uri);
 
         try {
