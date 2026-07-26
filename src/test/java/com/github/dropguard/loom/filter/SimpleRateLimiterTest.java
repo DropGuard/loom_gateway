@@ -2,16 +2,14 @@ package com.github.dropguard.loom.filter;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import org.junit.jupiter.api.Test;
-
 import com.github.dropguard.loom.model.RouteConfig.RateLimitConfig;
 
-import io.quarkus.vertx.web.Route;
+import org.junit.jupiter.api.Test;
 
 /**
- * Fixed-window rate limiter: locks the bucket-exhaustion boundary, the
- * window-reset behavior, and the lazy eviction path that keeps the bucket map
- * bounded under many distinct keys (DEFECT #20 sibling).
+ * Fixed-window rate limiter: locks the bucket-exhaustion boundary, the window-reset behavior, and
+ * the lazy eviction path that keeps the bucket map bounded under many distinct keys (DEFECT #20
+ * sibling).
  */
 class SimpleRateLimiterTest {
 

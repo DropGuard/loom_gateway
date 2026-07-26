@@ -3,8 +3,8 @@ package com.github.dropguard.loom.filter;
 import java.util.List;
 
 /**
- * Builds and executes the filter chain. Does not catch exceptions —
- * all exceptions propagate to the system boundary (GatewayRouter.handle()).
+ * Builds and executes the filter chain. Does not catch exceptions — all exceptions propagate to the
+ * system boundary (GatewayRouter.handle()).
  */
 public class FilterChain {
 

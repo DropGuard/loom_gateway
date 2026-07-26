@@ -17,17 +17,16 @@ import io.vertx.mutiny.core.http.HttpClientRequest;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
-import org.eclipse.microprofile.config.inject.ConfigProperty;
-
 import java.time.Duration;
 import java.time.Instant;
 import java.util.function.Consumer;
 
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 /**
- * Handles HTTP proxy forwarding. Parses upstream URL, forwards headers,
- * sends request to upstream, and streams/buffers response back to client.
+ * Handles HTTP proxy forwarding. Parses upstream URL, forwards headers, sends request to upstream,
+ * and streams/buffers response back to client.
  */
 @ApplicationScoped
 public class HttpProxyHandler {
@@ -39,21 +38,23 @@ public class HttpProxyHandler {
     private final int defaultTimeoutMs;
 
     @Inject
-    public HttpProxyHandler(Vertx vertx, GatewayMetrics metrics, CircuitBreakerFilter circuitBreakerFilter,
-                            @ConfigProperty(name = "gateway.timeout", defaultValue = "5000") int timeoutMs) {
-        this.httpClient = vertx.createHttpClient(
-                new HttpClientOptions()
-                        .setConnectTimeout(timeoutMs)
-                        .setIdleTimeout(timeoutMs));
+    public HttpProxyHandler(
+            Vertx vertx,
+            GatewayMetrics metrics,
+            CircuitBreakerFilter circuitBreakerFilter,
+            @ConfigProperty(name = "gateway.timeout", defaultValue = "5000") int timeoutMs) {
+        this.httpClient =
+                vertx.createHttpClient(
+                        new HttpClientOptions()
+                                .setConnectTimeout(timeoutMs)
+                                .setIdleTimeout(timeoutMs));
         this.metrics = metrics;
         this.circuitBreakerFilter = circuitBreakerFilter;
         this.defaultTimeoutMs = timeoutMs;
         LOG.infof("HTTP client initialized with timeout: %dms", timeoutMs);
     }
 
-    /**
-     * Proxy the HTTP request to the upstream service.
-     */
+    /** Proxy the HTTP request to the upstream service. */
     public void proxy(RoutingContext context, FilterContext filterContext) {
         io.vertx.core.http.HttpServerRequest incomingReq = context.request();
         HttpMethod method = HttpMethod.valueOf(incomingReq.method().name());
@@ -61,8 +62,10 @@ public class HttpProxyHandler {
 
         String effectiveUpstream = filterContext.effectiveUpstream();
         if (effectiveUpstream == null || effectiveUpstream.isBlank()) {
-            throw new ConfigException("No upstream resolved for route '"
-                    + (filterContext.route() != null ? filterContext.route().id() : "?") + "'");
+            throw new ConfigException(
+                    "No upstream resolved for route '"
+                            + (filterContext.route() != null ? filterContext.route().id() : "?")
+                            + "'");
         }
         UpstreamAddress upstream = UpstreamAddress.parse(effectiveUpstream);
         String host = upstream.host();
@@ -82,11 +85,12 @@ public class HttpProxyHandler {
             // Per-route timeout (mirrors SCG's Timeout filter). Falls back to the
             // global gateway.timeout when the route has no explicit timeout.
             TimeoutConfig routeTimeout = filterContext.filters().timeout();
-            Duration timeout = routeTimeout != null && routeTimeout.timeoutMs() > 0
-                    ? Duration.ofMillis(routeTimeout.timeoutMs())
-                    : Duration.ofMillis(defaultTimeoutMs);
-            HttpClientRequest backendReq = httpClient.request(method, port, host, uri)
-                    .await().atMost(timeout);
+            Duration timeout =
+                    routeTimeout != null && routeTimeout.timeoutMs() > 0
+                            ? Duration.ofMillis(routeTimeout.timeoutMs())
+                            : Duration.ofMillis(defaultTimeoutMs);
+            HttpClientRequest backendReq =
+                    httpClient.request(method, port, host, uri).await().atMost(timeout);
 
             ProxyHeaders.buildForwardHeaders(
                             incomingReq.headers().entries(),
@@ -94,48 +98,74 @@ public class HttpProxyHandler {
                             filterContext.filters().forwardClaims())
                     .forEach(backendReq.headers()::add);
 
-            io.vertx.core.buffer.Buffer body = context.body() != null ? context.body().buffer() : null;
+            io.vertx.core.buffer.Buffer body =
+                    context.body() != null ? context.body().buffer() : null;
             io.vertx.core.http.HttpServerResponse clientResp = context.response();
 
-            backendReq.send(
-                    io.vertx.mutiny.core.buffer.Buffer
-                            .newInstance(body != null ? body : io.vertx.core.buffer.Buffer.buffer()))
-                    .chain(backendRes -> {
-                        metrics.recordUpstreamLatency(Duration.between(upstreamStart, Instant.now()));
+            backendReq
+                    .send(
+                            io.vertx.mutiny.core.buffer.Buffer.newInstance(
+                                    body != null ? body : io.vertx.core.buffer.Buffer.buffer()))
+                    .chain(
+                            backendRes -> {
+                                metrics.recordUpstreamLatency(
+                                        Duration.between(upstreamStart, Instant.now()));
 
-                        ProxyHeaders.selectClientHeaders(backendRes.headers().entries())
-                                .forEach((k, v) -> clientResp.headers().add(k, v));
-                        // Benchmark response headers (mirror SCG ResponseHeaders filter):
-                        // tag the implementation, correlate the request, and record
-                        // end-to-end gateway latency in milliseconds.
-                        clientResp.headers().add("X-Gateway", "loom");
-                        clientResp.headers().add("X-Request-Id", java.util.UUID.randomUUID().toString());
-                        long processMs = Duration.between(start, Instant.now()).toMillis();
-                        clientResp.headers().add("X-Process-Time", processMs + "ms");
-                        clientResp.setStatusCode(backendRes.statusCode());
-                        LOG.debugf("Upstream response: %d (%dms)", backendRes.statusCode(), processMs);
+                                ProxyHeaders.selectClientHeaders(backendRes.headers().entries())
+                                        .forEach((k, v) -> clientResp.headers().add(k, v));
+                                // Benchmark response headers (mirror SCG ResponseHeaders filter):
+                                // tag the implementation, correlate the request, and record
+                                // end-to-end gateway latency in milliseconds.
+                                clientResp.headers().add("X-Gateway", "loom");
+                                clientResp
+                                        .headers()
+                                        .add(
+                                                "X-Request-Id",
+                                                java.util.UUID.randomUUID().toString());
+                                long processMs = Duration.between(start, Instant.now()).toMillis();
+                                clientResp.headers().add("X-Process-Time", processMs + "ms");
+                                clientResp.setStatusCode(backendRes.statusCode());
+                                LOG.debugf(
+                                        "Upstream response: %d (%dms)",
+                                        backendRes.statusCode(), processMs);
 
-                        Consumer<FilterContext.ResponseData> interceptor =
-                                filterContext.responseInterceptor();
-                        if (interceptor != null) {
-                            // Buffer mode: receive full body, pass to interceptor, then send
-                            return backendRes.body()
-                                    .onItem().invoke(mutinyBody -> {
-                                        String contentType = backendRes.headers().get("content-type");
-                                        interceptor.accept(new FilterContext.ResponseData(
-                                                backendRes.statusCode(), contentType,
-                                                mutinyBody.getBytes()));
-                                    })
-                                    .onItem().transformToUni(mutinyBody -> {
-                                        return io.vertx.mutiny.core.http.HttpServerResponse
-                                                .newInstance(clientResp).end(mutinyBody);
-                                    });
-                        } else {
-                            // Stream mode: pipe directly to client
-                            return backendRes.pipeTo(
-                                    io.vertx.mutiny.core.http.HttpServerResponse.newInstance(clientResp));
-                        }
-                    }).await().atMost(timeout);
+                                Consumer<FilterContext.ResponseData> interceptor =
+                                        filterContext.responseInterceptor();
+                                if (interceptor != null) {
+                                    // Buffer mode: receive full body, pass to interceptor, then
+                                    // send
+                                    return backendRes
+                                            .body()
+                                            .onItem()
+                                            .invoke(
+                                                    mutinyBody -> {
+                                                        String contentType =
+                                                                backendRes
+                                                                        .headers()
+                                                                        .get("content-type");
+                                                        interceptor.accept(
+                                                                new FilterContext.ResponseData(
+                                                                        backendRes.statusCode(),
+                                                                        contentType,
+                                                                        mutinyBody.getBytes()));
+                                                    })
+                                            .onItem()
+                                            .transformToUni(
+                                                    mutinyBody -> {
+                                                        return io.vertx.mutiny.core.http
+                                                                .HttpServerResponse.newInstance(
+                                                                        clientResp)
+                                                                .end(mutinyBody);
+                                                    });
+                                } else {
+                                    // Stream mode: pipe directly to client
+                                    return backendRes.pipeTo(
+                                            io.vertx.mutiny.core.http.HttpServerResponse
+                                                    .newInstance(clientResp));
+                                }
+                            })
+                    .await()
+                    .atMost(timeout);
 
             // Request completed synchronously on this (virtual) thread. Report the
             // outcome to the circuit breaker — this is the single source of truth
@@ -165,7 +195,7 @@ public class HttpProxyHandler {
 
     private static Throwable unwrapCompletionException(Throwable e) {
         while ((e instanceof java.util.concurrent.CompletionException
-                || e instanceof io.smallrye.mutiny.TimeoutException)
+                        || e instanceof io.smallrye.mutiny.TimeoutException)
                 && e.getCause() != null) {
             e = e.getCause();
         }

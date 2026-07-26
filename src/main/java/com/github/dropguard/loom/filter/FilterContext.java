@@ -10,14 +10,10 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
-/**
- * Context passed to each filter in the chain.
- */
+/** Context passed to each filter in the chain. */
 public class FilterContext {
 
-    /**
-     * Captured upstream response data, passed to response interceptors.
-     */
+    /** Captured upstream response data, passed to response interceptors. */
     public record ResponseData(int statusCode, String contentType, byte[] body) {}
 
     private final HttpServerRequest request;
@@ -70,9 +66,7 @@ public class FilterContext {
         this.claims = claims;
     }
 
-    /**
-     * Gets the effective upstream, may be overridden by gray release.
-     */
+    /** Gets the effective upstream, may be overridden by gray release. */
     public String effectiveUpstream() {
         return grayUpstream != null ? grayUpstream : (route() != null ? route().upstream() : null);
     }
@@ -82,10 +76,9 @@ public class FilterContext {
     }
 
     /**
-     * Registers a callback to intercept the upstream response before it is sent
-     * to the client. When set, the proxy will buffer the response body and pass
-     * it to the interceptor, then send to the client. When not set, the proxy
-     * streams directly via pipeTo without buffering.
+     * Registers a callback to intercept the upstream response before it is sent to the client. When
+     * set, the proxy will buffer the response body and pass it to the interceptor, then send to the
+     * client. When not set, the proxy streams directly via pipeTo without buffering.
      */
     public void onResponse(Consumer<ResponseData> interceptor) {
         this.responseInterceptor = interceptor;

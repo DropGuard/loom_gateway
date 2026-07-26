@@ -44,7 +44,8 @@ public class CacheFilter implements Filter {
             return;
         }
 
-        String method = context.request().method() != null ? context.request().method().name() : "GET";
+        String method =
+                context.request().method() != null ? context.request().method().name() : "GET";
         if (!"GET".equalsIgnoreCase(method)) {
             next.run();
             return;
@@ -65,15 +66,22 @@ public class CacheFilter implements Filter {
         long ttlSeconds = config.ttlSeconds();
 
         // Register response interceptor to cache the upstream response
-        context.onResponse(data -> {
-            if (data.body().length > MAX_CACHE_BODY_SIZE) {
-                LOG.debugf("Response too large to cache (%d bytes > %d)",
-                        data.body().length, MAX_CACHE_BODY_SIZE);
-                return;
-            }
-            cache.put(cacheKey, data.statusCode(), data.contentType(), data.body(), ttlSeconds);
-            LOG.debugf("Cached response for '%s' (%d bytes)", cacheKey, data.body().length);
-        });
+        context.onResponse(
+                data -> {
+                    if (data.body().length > MAX_CACHE_BODY_SIZE) {
+                        LOG.debugf(
+                                "Response too large to cache (%d bytes > %d)",
+                                data.body().length, MAX_CACHE_BODY_SIZE);
+                        return;
+                    }
+                    cache.put(
+                            cacheKey,
+                            data.statusCode(),
+                            data.contentType(),
+                            data.body(),
+                            ttlSeconds);
+                    LOG.debugf("Cached response for '%s' (%d bytes)", cacheKey, data.body().length);
+                });
 
         next.run();
     }

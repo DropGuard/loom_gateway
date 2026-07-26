@@ -27,7 +27,10 @@ class CircuitBreakerFilterTest {
     void setUp() {
         // Each test gets its own registry so breaker state cannot leak between
         // tests (mirrors the per-test isolation the old per-filter map gave).
-        filter = new CircuitBreakerFilter(new CircuitBreakerRegistry(), new GatewayMetrics(new SimpleMeterRegistry()));
+        filter =
+                new CircuitBreakerFilter(
+                        new CircuitBreakerRegistry(),
+                        new GatewayMetrics(new SimpleMeterRegistry()));
         request = new MockRequest();
         response = new MockResponse();
         context = new FilterContext(request, response);
@@ -35,18 +38,21 @@ class CircuitBreakerFilterTest {
 
     private boolean applyWithOutcome(FilterContext ctx, boolean outcome) throws Exception {
         AtomicBoolean nextCalled = new AtomicBoolean(false);
-        filter.apply(ctx, () -> {
-            nextCalled.set(true);
-            // Simulate the downstream proxy handler reporting the actual outcome,
-            // which is now the single source of truth for the circuit breaker.
-            String routeId = ctx.route() != null ? ctx.route().id() : "r1";
-            filter.recordOutcome(routeId, outcome);
-        });
+        filter.apply(
+                ctx,
+                () -> {
+                    nextCalled.set(true);
+                    // Simulate the downstream proxy handler reporting the actual outcome,
+                    // which is now the single source of truth for the circuit breaker.
+                    String routeId = ctx.route() != null ? ctx.route().id() : "r1";
+                    filter.recordOutcome(routeId, outcome);
+                });
         return nextCalled.get();
     }
 
     private RouteConfig routeWithCB(CircuitBreakerConfig cb) {
-        return new RouteConfig("r1", "/**", null, "", FilterConfig.builder().circuitBreaker(cb).build());
+        return new RouteConfig(
+                "r1", "/**", null, "", FilterConfig.builder().circuitBreaker(cb).build());
     }
 
     private FilterContext freshContext() {
@@ -136,20 +142,27 @@ class CircuitBreakerFilterTest {
     }
 
     /**
-     * Regression for DEFECT #7: a steady trickle of failures must NOT keep the
-     * breaker stuck OPEN forever. The OPEN timer is armed only on the
-     * CLOSED -> OPEN transition, so even if failures keep arriving while OPEN,
-     * the HALF_OPEN deadline is still reached and traffic is allowed again.
-     * Uses a dedicated breaker instance + routeId so it cannot interfere with
-     * the shared "r1" breaker used by the other tests.
+     * Regression for DEFECT #7: a steady trickle of failures must NOT keep the breaker stuck OPEN
+     * forever. The OPEN timer is armed only on the CLOSED -> OPEN transition, so even if failures
+     * keep arriving while OPEN, the HALF_OPEN deadline is still reached and traffic is allowed
+     * again. Uses a dedicated breaker instance + routeId so it cannot interfere with the shared
+     * "r1" breaker used by the other tests.
      */
     @Test
     void breakerRecoversFromSustainedLowRateFailures() throws Exception {
-        CircuitBreakerFilter isolated = new CircuitBreakerFilter(new CircuitBreakerRegistry(), new GatewayMetrics(new SimpleMeterRegistry()));
+        CircuitBreakerFilter isolated =
+                new CircuitBreakerFilter(
+                        new CircuitBreakerRegistry(),
+                        new GatewayMetrics(new SimpleMeterRegistry()));
         CircuitBreakerConfig cb = new CircuitBreakerConfig(3, 200); // threshold 3, timeout 200ms
 
-        RouteConfig route = new RouteConfig("r-lowrate", "/**", null, "",
-                FilterConfig.builder().circuitBreaker(cb).build());
+        RouteConfig route =
+                new RouteConfig(
+                        "r-lowrate",
+                        "/**",
+                        null,
+                        "",
+                        FilterConfig.builder().circuitBreaker(cb).build());
 
         // Trip OPEN with 3 consecutive failures (breaker is CLOSED for the first
         // two, transitions to OPEN on the third — so we don't assert per-request).
@@ -182,10 +195,12 @@ class CircuitBreakerFilterTest {
         FilterContext ctx = new FilterContext(request, new MockResponse());
         ctx.route(route);
         AtomicBoolean recovered = new AtomicBoolean(false);
-        isolated.apply(ctx, () -> {
-            recovered.set(true);
-            isolated.recordOutcome("r-lowrate", true);
-        });
+        isolated.apply(
+                ctx,
+                () -> {
+                    recovered.set(true);
+                    isolated.recordOutcome("r-lowrate", true);
+                });
         assertTrue(recovered.get(), "breaker must recover (HALF_OPEN) and pass traffic");
         assertEquals(200, ((MockResponse) ctx.response()).statusCode);
     }

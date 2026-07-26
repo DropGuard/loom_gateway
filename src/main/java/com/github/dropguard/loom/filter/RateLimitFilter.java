@@ -42,12 +42,14 @@ public class RateLimitFilter implements Filter {
         // unchanged behavior for anonymous traffic).
         String clientId = resolveClientId(context);
         String bucketKey = clientId != null ? routeId + ":" + clientId : routeId;
-        SimpleRateLimiter limiter = limiters.computeIfAbsent(bucketKey, k -> new SimpleRateLimiter(config));
+        SimpleRateLimiter limiter =
+                limiters.computeIfAbsent(bucketKey, k -> new SimpleRateLimiter(config));
 
         if (limiter.tryAcquire(bucketKey)) {
             next.run();
         } else {
-            LOG.debugf("Rate limit exceeded for route '%s'%s",
+            LOG.debugf(
+                    "Rate limit exceeded for route '%s'%s",
                     routeId, clientId != null ? " (client " + clientId + ")" : "");
             if (metrics != null) metrics.recordRateLimitExceeded();
             FilterResult.stop(429, "Too Many Requests").writeResponse(context.response());
@@ -55,10 +57,9 @@ public class RateLimitFilter implements Filter {
     }
 
     /**
-     * Resolve a stable per-client identity for rate limiting.
-     * Priority: JWT "sub" claim > API key header > null (no identity, falls
-     * back to the route-wide bucket). Does NOT use raw client IP so we don't
-     * depend on X-Forwarded-For trust (a spoofable header).
+     * Resolve a stable per-client identity for rate limiting. Priority: JWT "sub" claim > API key
+     * header > null (no identity, falls back to the route-wide bucket). Does NOT use raw client IP
+     * so we don't depend on X-Forwarded-For trust (a spoofable header).
      */
     private String resolveClientId(FilterContext context) {
         Map<String, Object> claims = context.claims();

@@ -19,8 +19,7 @@ import org.junit.jupiter.api.Test;
 @QuarkusTestResource(MockBackendResource.class)
 class GatewayHttpIntegrationTest {
 
-    @Inject
-    CircuitBreakerRegistry circuitBreakerRegistry;
+    @Inject CircuitBreakerRegistry circuitBreakerRegistry;
 
     // The dead-upstream route opens its circuit breaker, which is process-wide
     // state. Reset it after each test so a breaker left OPEN by one test does not
@@ -31,27 +30,20 @@ class GatewayHttpIntegrationTest {
         circuitBreakerRegistry.reset("api-fail");
     }
 
-
     private static final String JWT_SECRET = "this-is-a-test-secret-key-that-is-at-least-32-chars!";
 
     // ---- Route matching ----
 
     @Test
     void unmatchedRoute_returns404() {
-        RestAssured.given()
-                .get("/no/such/route")
-                .then()
-                .statusCode(404);
+        RestAssured.given().get("/no/such/route").then().statusCode(404);
     }
 
     // ---- JWT Auth ----
 
     @Test
     void jwtRoute_noToken_returns401() {
-        RestAssured.given()
-                .get("/api/users/me")
-                .then()
-                .statusCode(401);
+        RestAssured.given().get("/api/users/me").then().statusCode(401);
     }
 
     @Test
@@ -111,10 +103,7 @@ class GatewayHttpIntegrationTest {
 
     @Test
     void apiKeyRoute_noKey_returns401() {
-        RestAssured.given()
-                .get("/api/external/data")
-                .then()
-                .statusCode(401);
+        RestAssured.given().get("/api/external/data").then().statusCode(401);
     }
 
     @Test
@@ -140,10 +129,7 @@ class GatewayHttpIntegrationTest {
 
     @Test
     void wrongMethod_returns404() {
-        RestAssured.given()
-                .delete("/api/public/data")
-                .then()
-                .statusCode(404);
+        RestAssured.given().delete("/api/public/data").then().statusCode(404);
     }
 
     // ---- Circuit breaker ----
@@ -152,17 +138,11 @@ class GatewayHttpIntegrationTest {
     void circuitBreaker_opensAfterFailures() {
         // Port 19998 has no listener → proxy fails with 502
         for (int i = 0; i < 3; i++) {
-            RestAssured.given()
-                    .get("/api/fail/test")
-                    .then()
-                    .statusCode(502);
+            RestAssured.given().get("/api/fail/test").then().statusCode(502);
         }
 
         // 4th: circuit breaker OPEN → 503
-        RestAssured.given()
-                .get("/api/fail/test")
-                .then()
-                .statusCode(503);
+        RestAssured.given().get("/api/fail/test").then().statusCode(503);
     }
 
     // ---- Query string forwarding ----
@@ -273,16 +253,10 @@ class GatewayHttpIntegrationTest {
     @Test
     void rateLimit_blocksAfterExceeding() {
         for (int i = 0; i < 3; i++) {
-            RestAssured.given()
-                    .get("/api/limited/data")
-                    .then()
-                    .statusCode(200);
+            RestAssured.given().get("/api/limited/data").then().statusCode(200);
         }
 
-        RestAssured.given()
-                .get("/api/limited/data")
-                .then()
-                .statusCode(429);
+        RestAssured.given().get("/api/limited/data").then().statusCode(429);
     }
 
     // ---- CORS ----
@@ -315,18 +289,23 @@ class GatewayHttpIntegrationTest {
 
     private String buildJwt(String subject, boolean expired) throws Exception {
         java.util.Date now = new java.util.Date();
-        var claims = new com.nimbusds.jwt.JWTClaimsSet.Builder()
-                .subject(subject)
-                .issuer("test")
-                .issueTime(now)
-                .expirationTime(expired
-                        ? new java.util.Date(now.getTime() - 10000)
-                        : new java.util.Date(now.getTime() + 60000))
-                .build();
+        var claims =
+                new com.nimbusds.jwt.JWTClaimsSet.Builder()
+                        .subject(subject)
+                        .issuer("test")
+                        .issueTime(now)
+                        .expirationTime(
+                                expired
+                                        ? new java.util.Date(now.getTime() - 10000)
+                                        : new java.util.Date(now.getTime() + 60000))
+                        .build();
 
-        var jwt = new com.nimbusds.jwt.SignedJWT(
-                new com.nimbusds.jose.JWSHeader.Builder(com.nimbusds.jose.JWSAlgorithm.HS256).build(),
-                claims);
+        var jwt =
+                new com.nimbusds.jwt.SignedJWT(
+                        new com.nimbusds.jose.JWSHeader.Builder(
+                                        com.nimbusds.jose.JWSAlgorithm.HS256)
+                                .build(),
+                        claims);
         jwt.sign(new com.nimbusds.jose.crypto.MACSigner(JWT_SECRET));
         return jwt.serialize();
     }

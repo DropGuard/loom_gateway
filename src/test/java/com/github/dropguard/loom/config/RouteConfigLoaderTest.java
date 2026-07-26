@@ -21,8 +21,10 @@ class RouteConfigLoaderTest {
 
     @Test
     void testPathPatternMatching_simplePath() {
-        applyRoutes(List.of(
-                new RouteConfig("health", "/health", List.of("GET"), "health-service:8080", null)));
+        applyRoutes(
+                List.of(
+                        new RouteConfig(
+                                "health", "/health", List.of("GET"), "health-service:8080", null)));
 
         assertNotNull(loader.findMatchingRoute("/health", "GET"));
         assertNull(loader.findMatchingRoute("/health", "POST"));
@@ -31,8 +33,14 @@ class RouteConfigLoaderTest {
 
     @Test
     void testPathPatternMatching_doubleWildcard() {
-        applyRoutes(List.of(
-                new RouteConfig("api-users", "/api/users/**", List.of("GET", "POST"), "user-service:8080", null)));
+        applyRoutes(
+                List.of(
+                        new RouteConfig(
+                                "api-users",
+                                "/api/users/**",
+                                List.of("GET", "POST"),
+                                "user-service:8080",
+                                null)));
 
         assertNotNull(loader.findMatchingRoute("/api/users", "GET"));
         assertNotNull(loader.findMatchingRoute("/api/users/123", "GET"));
@@ -43,8 +51,14 @@ class RouteConfigLoaderTest {
 
     @Test
     void testPathPatternMatching_singleWildcard() {
-        applyRoutes(List.of(
-                new RouteConfig("api-item", "/api/items/*", List.of("GET"), "item-service:8080", null)));
+        applyRoutes(
+                List.of(
+                        new RouteConfig(
+                                "api-item",
+                                "/api/items/*",
+                                List.of("GET"),
+                                "item-service:8080",
+                                null)));
 
         assertNotNull(loader.findMatchingRoute("/api/items/123", "GET"));
         assertNull(loader.findMatchingRoute("/api/items/123/sub", "GET"));
@@ -52,8 +66,7 @@ class RouteConfigLoaderTest {
 
     @Test
     void testPathPatternMatching_nullMethods() {
-        applyRoutes(List.of(
-                new RouteConfig("catch-all", "/**", null, "backend:8080", null)));
+        applyRoutes(List.of(new RouteConfig("catch-all", "/**", null, "backend:8080", null)));
 
         assertNotNull(loader.findMatchingRoute("/anything/goes", "GET"));
         assertNotNull(loader.findMatchingRoute("/anything/goes", "POST"));
@@ -61,8 +74,7 @@ class RouteConfigLoaderTest {
 
     @Test
     void testPathPatternMatching_emptyMethods() {
-        applyRoutes(List.of(
-                new RouteConfig("catch-all", "/**", List.of(), "backend:8080", null)));
+        applyRoutes(List.of(new RouteConfig("catch-all", "/**", List.of(), "backend:8080", null)));
 
         assertNotNull(loader.findMatchingRoute("/anything/goes", "GET"));
     }

@@ -2,27 +2,32 @@ package com.github.dropguard.loom.router;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import org.junit.jupiter.api.Test;
-
 import com.github.dropguard.loom.exception.ConfigException;
 
+import org.junit.jupiter.api.Test;
+
 /**
- * Zero-mock unit tests for UpstreamAddress.parse: the URL parsing that
- * HttpProxyHandler relies on but previously only exercised via integration
- * tests. Locks default/scheme/explicit-port/IPv6/error branches.
+ * Zero-mock unit tests for UpstreamAddress.parse: the URL parsing that HttpProxyHandler relies on
+ * but previously only exercised via integration tests. Locks
+ * default/scheme/explicit-port/IPv6/error branches.
  */
 class UpstreamAddressTest {
 
     @Test
     void hostOnly_usesDefaultPortForScheme() {
         assertEquals(new UpstreamAddress("backend", 80, false), UpstreamAddress.parse("backend"));
-        assertEquals(new UpstreamAddress("backend", 443, true), UpstreamAddress.parse("https://backend"));
+        assertEquals(
+                new UpstreamAddress("backend", 443, true),
+                UpstreamAddress.parse("https://backend"));
     }
 
     @Test
     void explicitPort_overridesDefault() {
-        assertEquals(new UpstreamAddress("backend", 8080, false), UpstreamAddress.parse("backend:8080"));
-        assertEquals(new UpstreamAddress("backend", 8443, true), UpstreamAddress.parse("https://backend:8443"));
+        assertEquals(
+                new UpstreamAddress("backend", 8080, false), UpstreamAddress.parse("backend:8080"));
+        assertEquals(
+                new UpstreamAddress("backend", 8443, true),
+                UpstreamAddress.parse("https://backend:8443"));
     }
 
     @Test
@@ -35,7 +40,9 @@ class UpstreamAddressTest {
     @Test
     void ipv6Literal_withAndWithoutPort() {
         assertEquals(new UpstreamAddress("::1", 80, false), UpstreamAddress.parse("[::1]"));
-        assertEquals(new UpstreamAddress("2001:db8::1", 9090, false), UpstreamAddress.parse("[2001:db8::1]:9090"));
+        assertEquals(
+                new UpstreamAddress("2001:db8::1", 9090, false),
+                UpstreamAddress.parse("[2001:db8::1]:9090"));
     }
 
     @Test

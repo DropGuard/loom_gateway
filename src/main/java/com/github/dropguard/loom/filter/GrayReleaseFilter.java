@@ -14,10 +14,9 @@ public class GrayReleaseFilter implements Filter {
     private static final Logger LOG = Logger.getLogger(GrayReleaseFilter.class);
 
     /**
-     * Header a trusted layer (e.g. an upstream ingress/LB) sets to opt a request
-     * into the canary under {@code mode: rule}. It is a dedicated header,
-     * distinct from the client-facing gray header (X-Canary) that the gateway
-     * strips at ingress, so clients can never forge it.
+     * Header a trusted layer (e.g. an upstream ingress/LB) sets to opt a request into the canary
+     * under {@code mode: rule}. It is a dedicated header, distinct from the client-facing gray
+     * header (X-Canary) that the gateway strips at ingress, so clients can never forge it.
      */
     public static final String TRUSTED_GRAY_HEADER = "X-Internal-Canary";
 
@@ -57,7 +56,8 @@ public class GrayReleaseFilter implements Filter {
         String headerName = gray.ruleHeader() != null ? gray.ruleHeader() : TRUSTED_GRAY_HEADER;
         String actual = context.request().getHeader(headerName);
         if (gray.ruleValue() != null && gray.ruleValue().equals(actual)) {
-            LOG.debugf("Gray (rule): matched trusted header %s=%s -> %s",
+            LOG.debugf(
+                    "Gray (rule): matched trusted header %s=%s -> %s",
                     headerName, gray.ruleValue(), gray.grayUpstream());
             context.targetUpstream(gray.grayUpstream());
         }
@@ -70,8 +70,9 @@ public class GrayReleaseFilter implements Filter {
             // (JWT sub or API key). Unauthenticated requests can never be
             // bucketed, so they silently stay on the primary. Log it so the
             // behavior is observable rather than mysterious.
-            LOG.debugf("Gray (percentage): no resolvable identity for route '%s' " +
-                    "- request stays on primary (percentage canary requires auth)",
+            LOG.debugf(
+                    "Gray (percentage): no resolvable identity for route '%s' "
+                            + "- request stays on primary (percentage canary requires auth)",
                     context.route() != null ? context.route().id() : "?");
             return false;
         }

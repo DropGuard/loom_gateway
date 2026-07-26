@@ -7,17 +7,21 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
- * Locks the gateway-owned CORS contract -- the logic behind the previously
- * broken CORS behavior (framework quarkus.http.cors does not apply to @Route
- * reactive routes). Covers origin allow-list matching, preflight detection,
- * header construction, and the critical rule that an unmatched origin is never
- * echoed back. No Mockito dependency (offline); the policy is Vert.x-free.
+ * Locks the gateway-owned CORS contract -- the logic behind the previously broken CORS behavior
+ * (framework quarkus.http.cors does not apply to @Route reactive routes). Covers origin allow-list
+ * matching, preflight detection, header construction, and the critical rule that an unmatched
+ * origin is never echoed back. No Mockito dependency (offline); the policy is Vert.x-free.
  */
 class GatewayCorsPolicyTest {
 
     private GatewayCorsPolicy policy() {
-        return new GatewayCorsPolicy(true, ".*", "GET,POST,OPTIONS",
-                "Authorization,Content-Type", "X-Request-Id", 86400);
+        return new GatewayCorsPolicy(
+                true,
+                ".*",
+                "GET,POST,OPTIONS",
+                "Authorization,Content-Type",
+                "X-Request-Id",
+                86400);
     }
 
     @Test
@@ -71,8 +75,8 @@ class GatewayCorsPolicyTest {
         // Allow-list restricted to a specific host; a foreign origin must NOT
         // be echoed back (no cross-origin grant), but other config headers
         // are still emitted.
-        GatewayCorsPolicy p = new GatewayCorsPolicy(true, "https://trusted\\.com",
-                "GET", "Authorization", "", 0);
+        GatewayCorsPolicy p =
+                new GatewayCorsPolicy(true, "https://trusted\\.com", "GET", "Authorization", "", 0);
         Map<String, String> headers = p.buildHeaders("http://evil.com");
 
         assertNull(headers.get("Access-Control-Allow-Origin"));

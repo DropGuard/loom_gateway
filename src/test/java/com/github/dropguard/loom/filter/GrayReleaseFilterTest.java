@@ -7,7 +7,6 @@ import com.github.dropguard.loom.model.RouteConfig.FilterConfig;
 import com.github.dropguard.loom.model.RouteConfig.GrayConfig;
 import com.github.dropguard.loom.testutil.MockRequest;
 
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -24,17 +23,32 @@ class GrayReleaseFilterTest {
     }
 
     private RouteConfig grayRoutePercentage(double percent) {
-        return new RouteConfig("r1", "/**", null, "backend:8080",
+        return new RouteConfig(
+                "r1",
+                "/**",
+                null,
+                "backend:8080",
                 FilterConfig.builder()
-                        .gray(new GrayConfig("percentage", "gray-backend:8080", percent, null, null))
+                        .gray(
+                                new GrayConfig(
+                                        "percentage", "gray-backend:8080", percent, null, null))
                         .build());
     }
 
     private RouteConfig grayRouteRule() {
-        return new RouteConfig("r1", "/**", null, "backend:8080",
+        return new RouteConfig(
+                "r1",
+                "/**",
+                null,
+                "backend:8080",
                 FilterConfig.builder()
-                        .gray(new GrayConfig("rule", "gray-backend:8080", null,
-                                GrayReleaseFilter.TRUSTED_GRAY_HEADER, "true"))
+                        .gray(
+                                new GrayConfig(
+                                        "rule",
+                                        "gray-backend:8080",
+                                        null,
+                                        GrayReleaseFilter.TRUSTED_GRAY_HEADER,
+                                        "true"))
                         .build());
     }
 
@@ -55,8 +69,7 @@ class GrayReleaseFilterTest {
     }
 
     private void applyFilter(FilterContext ctx) throws Exception {
-        filter.apply(ctx, () -> {
-        });
+        filter.apply(ctx, () -> {});
     }
 
     // ---- No gray config ----
@@ -113,7 +126,9 @@ class GrayReleaseFilterTest {
     void sameJwtSub_alwaysSameDecision() throws Exception {
         boolean first = isGray(contextWithJwtSub("user-42"));
         for (int i = 0; i < 100; i++) {
-            assertEquals(first, isGray(contextWithJwtSub("user-42")),
+            assertEquals(
+                    first,
+                    isGray(contextWithJwtSub("user-42")),
                     "Same identity must always produce the same routing decision");
         }
     }
@@ -122,7 +137,9 @@ class GrayReleaseFilterTest {
     void sameApiKey_alwaysSameDecision() throws Exception {
         boolean first = isGray(contextWithApiKey("pk-stable-key"));
         for (int i = 0; i < 100; i++) {
-            assertEquals(first, isGray(contextWithApiKey("pk-stable-key")),
+            assertEquals(
+                    first,
+                    isGray(contextWithApiKey("pk-stable-key")),
                     "Same API key must always produce the same routing decision");
         }
     }
@@ -136,7 +153,9 @@ class GrayReleaseFilterTest {
             FilterContext ctx = new FilterContext(new MockRequest(), null);
             ctx.route(route);
             applyFilter(ctx);
-            assertEquals("backend:8080", ctx.effectiveUpstream(),
+            assertEquals(
+                    "backend:8080",
+                    ctx.effectiveUpstream(),
                     "Requests without identity must never route to gray");
         }
     }
@@ -161,7 +180,8 @@ class GrayReleaseFilterTest {
         }
 
         double actual = (double) grayCount / total * 100;
-        assertTrue(Math.abs(actual - percent) <= 5,
+        assertTrue(
+                Math.abs(actual - percent) <= 5,
                 String.format("Expected ~%.0f%% gray, got %.1f%%", percent, actual));
     }
 
@@ -184,7 +204,8 @@ class GrayReleaseFilterTest {
         }
 
         double actual = (double) grayCount / total * 100;
-        assertTrue(Math.abs(actual - percent) <= 5,
+        assertTrue(
+                Math.abs(actual - percent) <= 5,
                 String.format("Expected ~%.0f%% gray, got %.1f%%", percent, actual));
     }
 

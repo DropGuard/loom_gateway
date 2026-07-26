@@ -1,8 +1,6 @@
 package com.github.dropguard.loom.exception;
 
-/**
- * Base exception for all gateway-specific exceptions.
- */
+/** Base exception for all gateway-specific exceptions. */
 public abstract class GatewayException extends RuntimeException {
 
     public GatewayException(String message) {

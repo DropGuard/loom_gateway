@@ -11,8 +11,8 @@ import jakarta.enterprise.event.Event;
 import jakarta.inject.Inject;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.FileSystems;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardWatchEventKinds;
@@ -27,10 +27,10 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 /**
- * {@link RouteConfigProvider} that loads routes from a YAML file on the
- * filesystem. In production this is the mounted ConfigMap (/config/routes.yaml);
- * tests override the {@code gateway.config.path} property to point at a test
- * file. The source is resolved here and surfaced only through the interface.
+ * {@link RouteConfigProvider} that loads routes from a YAML file on the filesystem. In production
+ * this is the mounted ConfigMap (/config/routes.yaml); tests override the {@code
+ * gateway.config.path} property to point at a test file. The source is resolved here and surfaced
+ * only through the interface.
  */
 @ApplicationScoped
 public class RouteConfigLoader implements RouteConfigProvider {
@@ -41,8 +41,7 @@ public class RouteConfigLoader implements RouteConfigProvider {
     private volatile GatewayConfig config = GatewayConfig.EMPTY;
     private volatile Map<String, Pattern> compiledPatterns = new ConcurrentHashMap<>();
 
-    @Inject
-    Event<RouteConfigReloadedEvent> reloadEvent;
+    @Inject Event<RouteConfigReloadedEvent> reloadEvent;
 
     @ConfigProperty(name = "gateway.config.path", defaultValue = "/config/routes.yaml")
     String configPath;
@@ -54,8 +53,8 @@ public class RouteConfigLoader implements RouteConfigProvider {
     }
 
     /**
-     * Configured path first, then a relative fallback for local dev
-     * (mvn quarkus:dev), then the configured path as-is.
+     * Configured path first, then a relative fallback for local dev (mvn quarkus:dev), then the
+     * configured path as-is.
      */
     private String resolveConfigPath(String path) {
         if (Files.exists(Paths.get(path))) {
@@ -78,14 +77,17 @@ public class RouteConfigLoader implements RouteConfigProvider {
             // DEFECT #11: a missing critical config must be loud. The gateway
             // would otherwise start with EMPTY routes, report readiness DOWN
             // forever while liveness stays UP, and serve 404s with no restart.
-            LOG.errorf("CRITICAL: Configuration file not found: %s. Gateway will start with " +
-                    "NO routes (readiness DOWN). Fix the path or the file, or Kubernetes " +
-                    "will never restart this pod.", path);
+            LOG.errorf(
+                    "CRITICAL: Configuration file not found: %s. Gateway will start with "
+                            + "NO routes (readiness DOWN). Fix the path or the file, or Kubernetes "
+                            + "will never restart this pod.",
+                    path);
             return;
         }
 
         try {
-            GatewayConfig newConfig = yamlMapper.readValue(configFile.toFile(), GatewayConfig.class);
+            GatewayConfig newConfig =
+                    yamlMapper.readValue(configFile.toFile(), GatewayConfig.class);
             applyNewConfig(newConfig);
             startWatching(configFile);
         } catch (IOException e) {
@@ -94,40 +96,51 @@ public class RouteConfigLoader implements RouteConfigProvider {
     }
 
     private void startWatching(Path configFile) {
-        Thread.ofVirtual().name("config-watcher").start(() -> {
-            try (WatchService watchService = FileSystems.getDefault().newWatchService()) {
-                Path parentDir = configFile.getParent();
-                if (parentDir != null) {
-                    parentDir.register(watchService,
-                            StandardWatchEventKinds.ENTRY_MODIFY,
-                            StandardWatchEventKinds.ENTRY_CREATE);
-                }
+        Thread.ofVirtual()
+                .name("config-watcher")
+                .start(
+                        () -> {
+                            try (WatchService watchService =
+                                    FileSystems.getDefault().newWatchService()) {
+                                Path parentDir = configFile.getParent();
+                                if (parentDir != null) {
+                                    parentDir.register(
+                                            watchService,
+                                            StandardWatchEventKinds.ENTRY_MODIFY,
+                                            StandardWatchEventKinds.ENTRY_CREATE);
+                                }
 
-                LOG.infof("Started watching configuration file: %s", configFile);
+                                LOG.infof("Started watching configuration file: %s", configFile);
 
-                while (!Thread.currentThread().isInterrupted()) {
-                    WatchKey key = watchService.take();
-                    for (WatchEvent<?> event : key.pollEvents()) {
-                        Path changedFile = (Path) event.context();
-                        if (configFile.getFileName().toString().equals(changedFile.toString())) {
-                            LOG.infof("Configuration file changed, reloading: %s", changedFile);
-                            reloadConfig(configFile);
-                        }
-                    }
-                    key.reset();
-                }
-            } catch (InterruptedException e) {
-                LOG.info("Config watcher thread interrupted");
-                Thread.currentThread().interrupt();
-            } catch (IOException e) {
-                LOG.errorf(e, "Failed to watch configuration file");
-            }
-        });
+                                while (!Thread.currentThread().isInterrupted()) {
+                                    WatchKey key = watchService.take();
+                                    for (WatchEvent<?> event : key.pollEvents()) {
+                                        Path changedFile = (Path) event.context();
+                                        if (configFile
+                                                .getFileName()
+                                                .toString()
+                                                .equals(changedFile.toString())) {
+                                            LOG.infof(
+                                                    "Configuration file changed, reloading: %s",
+                                                    changedFile);
+                                            reloadConfig(configFile);
+                                        }
+                                    }
+                                    key.reset();
+                                }
+                            } catch (InterruptedException e) {
+                                LOG.info("Config watcher thread interrupted");
+                                Thread.currentThread().interrupt();
+                            } catch (IOException e) {
+                                LOG.errorf(e, "Failed to watch configuration file");
+                            }
+                        });
     }
 
     private void reloadConfig(Path configFile) {
         try {
-            GatewayConfig newConfig = yamlMapper.readValue(configFile.toFile(), GatewayConfig.class);
+            GatewayConfig newConfig =
+                    yamlMapper.readValue(configFile.toFile(), GatewayConfig.class);
             applyNewConfig(newConfig);
             reloadEvent.fire(new RouteConfigReloadedEvent(newConfig));
         } catch (IOException e) {
@@ -144,7 +157,8 @@ public class RouteConfigLoader implements RouteConfigProvider {
         }
         this.compiledPatterns = newPatterns;
         this.config = newConfig;
-        LOG.infof("Applied configuration with %d routes",
+        LOG.infof(
+                "Applied configuration with %d routes",
                 newConfig.routes() != null ? newConfig.routes().size() : 0);
     }
 
@@ -154,10 +168,11 @@ public class RouteConfigLoader implements RouteConfigProvider {
             String basePath = pathPattern.substring(0, pathPattern.length() - 3);
             regex = basePath + "(?:/.*)?";
         } else {
-            regex = pathPattern
-                    .replace("**", "__DOUBLESTAR__")
-                    .replace("*", "[^/]+")
-                    .replace("__DOUBLESTAR__", ".*");
+            regex =
+                    pathPattern
+                            .replace("**", "__DOUBLESTAR__")
+                            .replace("*", "[^/]+")
+                            .replace("__DOUBLESTAR__", ".*");
         }
         return Pattern.compile("^" + regex + "$");
     }
@@ -174,8 +189,9 @@ public class RouteConfigLoader implements RouteConfigProvider {
         for (RouteConfig route : currentConfig.routes()) {
             Pattern pattern = currentPatterns.get(route.id());
             if (pattern != null && pattern.matcher(requestPath).matches()) {
-                if (route.methods() == null || route.methods().isEmpty() ||
-                        route.methods().contains(method.toUpperCase())) {
+                if (route.methods() == null
+                        || route.methods().isEmpty()
+                        || route.methods().contains(method.toUpperCase())) {
                     return route;
                 }
             }

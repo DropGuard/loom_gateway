@@ -1,12 +1,5 @@
 package com.github.dropguard.loom.testutil;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
-
-import javax.net.ssl.SSLSession;
-import javax.security.cert.X509Certificate;
-
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
 import io.vertx.core.MultiMap;
@@ -25,10 +18,15 @@ import io.vertx.core.net.HostAndPort;
 import io.vertx.core.net.NetSocket;
 import io.vertx.core.net.SocketAddress;
 
-/**
- * Shared mock HttpServerRequest for unit tests.
- */
-@SuppressWarnings({ "removal" })
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+
+import javax.net.ssl.SSLSession;
+import javax.security.cert.X509Certificate;
+
+/** Shared mock HttpServerRequest for unit tests. */
+@SuppressWarnings({"removal"})
 public class MockRequest implements HttpServerRequest {
     public final Map<String, String> headers = new HashMap<>();
     public HttpMethod method = HttpMethod.GET;

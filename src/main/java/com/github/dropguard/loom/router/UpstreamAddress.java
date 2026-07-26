@@ -2,14 +2,12 @@ package com.github.dropguard.loom.router;
 
 import com.github.dropguard.loom.exception.ConfigException;
 
-/**
- * Parsed upstream address with host, port, and SSL flag.
- */
+/** Parsed upstream address with host, port, and SSL flag. */
 public record UpstreamAddress(String host, int port, boolean ssl) {
 
     /**
-     * Parse an upstream URL string into an UpstreamAddress.
-     * Supports formats: "host", "host:port", "http://host", "https://host:port"
+     * Parse an upstream URL string into an UpstreamAddress. Supports formats: "host", "host:port",
+     * "http://host", "https://host:port"
      */
     public static UpstreamAddress parse(String upstreamUrl) {
         if (upstreamUrl == null || upstreamUrl.isBlank()) {
@@ -32,7 +30,8 @@ public record UpstreamAddress(String host, int port, boolean ssl) {
             // IPv6 literal, e.g. [::1]:8080 or [2001:db8::1]
             int close = url.indexOf(']');
             if (close < 0) {
-                throw new ConfigException("Malformed IPv6 upstream URL (missing ']'): " + upstreamUrl);
+                throw new ConfigException(
+                        "Malformed IPv6 upstream URL (missing ']'): " + upstreamUrl);
             }
             host = url.substring(1, close);
             String rest = url.substring(close + 1);
@@ -61,7 +60,8 @@ public record UpstreamAddress(String host, int port, boolean ssl) {
             return ssl ? 443 : 80;
         }
         if (!afterHost.startsWith(":")) {
-            throw new ConfigException("Malformed upstream URL (unexpected ':' placement): " + original);
+            throw new ConfigException(
+                    "Malformed upstream URL (unexpected ':' placement): " + original);
         }
         try {
             return Integer.parseInt(afterHost.substring(1));

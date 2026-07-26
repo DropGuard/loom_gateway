@@ -11,9 +11,7 @@ import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Collects and exposes gateway metrics via Micrometer (Prometheus compatible).
- */
+/** Collects and exposes gateway metrics via Micrometer (Prometheus compatible). */
 @Singleton
 public class GatewayMetrics {
 
@@ -39,30 +37,36 @@ public class GatewayMetrics {
                 .description("Current number of active WebSocket connections")
                 .register(registry);
 
-        this.requestDuration = Timer.builder("gateway_request_duration_seconds")
-                .description("Request processing duration")
-                .tag("gateway", "java-gateway")
-                .register(registry);
+        this.requestDuration =
+                Timer.builder("gateway_request_duration_seconds")
+                        .description("Request processing duration")
+                        .tag("gateway", "java-gateway")
+                        .register(registry);
 
-        this.upstreamLatency = Timer.builder("gateway_upstream_latency_seconds")
-                .description("Time spent waiting for upstream response")
-                .register(registry);
+        this.upstreamLatency =
+                Timer.builder("gateway_upstream_latency_seconds")
+                        .description("Time spent waiting for upstream response")
+                        .register(registry);
 
-        this.cacheHitCounter = Counter.builder("gateway_cache_hits_total")
-                .description("Total cache hits")
-                .register(registry);
+        this.cacheHitCounter =
+                Counter.builder("gateway_cache_hits_total")
+                        .description("Total cache hits")
+                        .register(registry);
 
-        this.cacheMissCounter = Counter.builder("gateway_cache_misses_total")
-                .description("Total cache misses")
-                .register(registry);
+        this.cacheMissCounter =
+                Counter.builder("gateway_cache_misses_total")
+                        .description("Total cache misses")
+                        .register(registry);
 
-        this.rateLimitCounter = Counter.builder("gateway_rate_limit_exceeded_total")
-                .description("Total requests rejected by rate limiter")
-                .register(registry);
+        this.rateLimitCounter =
+                Counter.builder("gateway_rate_limit_exceeded_total")
+                        .description("Total requests rejected by rate limiter")
+                        .register(registry);
 
-        this.circuitBreakerCounter = Counter.builder("gateway_circuit_breaker_triggered_total")
-                .description("Total circuit breaker state transitions to OPEN")
-                .register(registry);
+        this.circuitBreakerCounter =
+                Counter.builder("gateway_circuit_breaker_triggered_total")
+                        .description("Total circuit breaker state transitions to OPEN")
+                        .register(registry);
     }
 
     public void incrementActiveConnections() {
@@ -85,11 +89,16 @@ public class GatewayMetrics {
         requestDuration.record(duration);
 
         String key = route + ":" + statusCode;
-        statusCounters.computeIfAbsent(key, k -> Counter.builder("gateway_requests_total")
-                .description("Total number of requests processed")
-                .tag("route", route)
-                .tag("status", String.valueOf(statusCode))
-                .register(registry)).increment();
+        statusCounters
+                .computeIfAbsent(
+                        key,
+                        k ->
+                                Counter.builder("gateway_requests_total")
+                                        .description("Total number of requests processed")
+                                        .tag("route", route)
+                                        .tag("status", String.valueOf(statusCode))
+                                        .register(registry))
+                .increment();
     }
 
     public void recordUpstreamLatency(Duration latency) {

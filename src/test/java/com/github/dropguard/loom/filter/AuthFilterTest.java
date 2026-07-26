@@ -45,16 +45,18 @@ class AuthFilterTest {
 
     private String buildJwt(String subject, boolean expired) throws Exception {
         Date now = new Date();
-        JWTClaimsSet claims = new JWTClaimsSet.Builder()
-                .subject(subject)
-                .issuer("test")
-                .issueTime(now)
-                .expirationTime(expired ? new Date(now.getTime() - 10000) : new Date(now.getTime() + 60000))
-                .build();
+        JWTClaimsSet claims =
+                new JWTClaimsSet.Builder()
+                        .subject(subject)
+                        .issuer("test")
+                        .issueTime(now)
+                        .expirationTime(
+                                expired
+                                        ? new Date(now.getTime() - 10000)
+                                        : new Date(now.getTime() + 60000))
+                        .build();
 
-        SignedJWT jwt = new SignedJWT(
-                new JWSHeader.Builder(JWSAlgorithm.HS256).build(),
-                claims);
+        SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.HS256).build(), claims);
         jwt.sign(new MACSigner(JWT_SECRET));
         return jwt.serialize();
     }
@@ -100,13 +102,17 @@ class AuthFilterTest {
     @Test
     void testApiKeyValid() throws Exception {
         request.headers.put("X-API-Key", "valid-key-123");
-        context.route(routeWithAuth(new AuthConfig("api-key", true, null, List.of("valid-key-123", "valid-key-456"))));
+        context.route(
+                routeWithAuth(
+                        new AuthConfig(
+                                "api-key", true, null, List.of("valid-key-123", "valid-key-456"))));
         assertTrue(applyAndCheckNext(context));
     }
 
     @Test
     void testApiKeyMissing() throws Exception {
-        context.route(routeWithAuth(new AuthConfig("api-key", true, null, List.of("valid-key-123"))));
+        context.route(
+                routeWithAuth(new AuthConfig("api-key", true, null, List.of("valid-key-123"))));
 
         assertFalse(applyAndCheckNext(context));
         assertEquals(401, response.statusCode);
@@ -115,7 +121,8 @@ class AuthFilterTest {
     @Test
     void testApiKeyInvalid() throws Exception {
         request.headers.put("X-API-Key", "wrong-key");
-        context.route(routeWithAuth(new AuthConfig("api-key", true, null, List.of("valid-key-123"))));
+        context.route(
+                routeWithAuth(new AuthConfig("api-key", true, null, List.of("valid-key-123"))));
 
         assertFalse(applyAndCheckNext(context));
         assertEquals(401, response.statusCode);
@@ -147,15 +154,14 @@ class AuthFilterTest {
     void testJwtSignatureMismatch_returns401() throws Exception {
         // Sign with a different secret
         Date now = new Date();
-        JWTClaimsSet claims = new JWTClaimsSet.Builder()
-                .subject("user-1")
-                .issuer("test")
-                .issueTime(now)
-                .expirationTime(new Date(now.getTime() + 60000))
-                .build();
-        SignedJWT jwt = new SignedJWT(
-                new JWSHeader.Builder(JWSAlgorithm.HS256).build(),
-                claims);
+        JWTClaimsSet claims =
+                new JWTClaimsSet.Builder()
+                        .subject("user-1")
+                        .issuer("test")
+                        .issueTime(now)
+                        .expirationTime(new Date(now.getTime() + 60000))
+                        .build();
+        SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.HS256).build(), claims);
         jwt.sign(new MACSigner("wrong-secret-key-that-is-at-least-32-chars!!"));
         String token = jwt.serialize();
 
@@ -178,16 +184,15 @@ class AuthFilterTest {
     @Test
     void testJwtNotBefore_returns401() throws Exception {
         Date now = new Date();
-        JWTClaimsSet claims = new JWTClaimsSet.Builder()
-                .subject("user-1")
-                .issuer("test")
-                .issueTime(now)
-                .notBeforeTime(new Date(now.getTime() + 60000)) // 1 minute in the future
-                .expirationTime(new Date(now.getTime() + 120000))
-                .build();
-        SignedJWT jwt = new SignedJWT(
-                new JWSHeader.Builder(JWSAlgorithm.HS256).build(),
-                claims);
+        JWTClaimsSet claims =
+                new JWTClaimsSet.Builder()
+                        .subject("user-1")
+                        .issuer("test")
+                        .issueTime(now)
+                        .notBeforeTime(new Date(now.getTime() + 60000)) // 1 minute in the future
+                        .expirationTime(new Date(now.getTime() + 120000))
+                        .build();
+        SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.HS256).build(), claims);
         jwt.sign(new MACSigner(JWT_SECRET));
         String token = jwt.serialize();
 

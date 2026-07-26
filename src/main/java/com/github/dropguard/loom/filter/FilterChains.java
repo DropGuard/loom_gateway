@@ -15,18 +15,23 @@ public class FilterChains {
     private final FilterChain ws;
 
     @Inject
-    public FilterChains(AuthFilter auth, RateLimitFilter rateLimit,
-            CircuitBreakerFilter circuitBreaker, GrayReleaseFilter gray,
+    public FilterChains(
+            AuthFilter auth,
+            RateLimitFilter rateLimit,
+            CircuitBreakerFilter circuitBreaker,
+            GrayReleaseFilter gray,
             CacheFilter cache) {
         this.http = new FilterChain(List.of(auth, rateLimit, circuitBreaker, gray, cache));
         this.ws = new FilterChain(List.of(auth, rateLimit, circuitBreaker, gray));
-        LOG.infof("HTTP filter chain: %d filters, WebSocket filter chain: %d filters",
+        LOG.infof(
+                "HTTP filter chain: %d filters, WebSocket filter chain: %d filters",
                 http.size(), ws.size());
     }
 
     public FilterChain http() {
         return http;
     }
+
     public FilterChain ws() {
         return ws;
     }

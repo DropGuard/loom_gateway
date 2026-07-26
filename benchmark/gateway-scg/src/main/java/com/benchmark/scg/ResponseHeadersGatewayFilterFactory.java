@@ -1,24 +1,23 @@
 package com.benchmark.scg;
 
+import java.time.Duration;
+import java.time.Instant;
+
 import org.springframework.cloud.gateway.filter.GatewayFilter;
 import org.springframework.cloud.gateway.filter.factory.AbstractGatewayFilterFactory;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
-import org.springframework.web.server.ServerWebExchange;
+
 import reactor.core.publisher.Mono;
 
-import java.time.Duration;
-import java.time.Instant;
-
 /**
- * Adds benchmark response headers, mirroring the Loom Gateway's response-header
- * injection. {@code X-Gateway} tags the implementation, {@code X-Request-Id}
- * correlates the request, and {@code X-Process-Time} records end-to-end gateway
- * latency in milliseconds.
+ * Adds benchmark response headers, mirroring the Loom Gateway's response-header injection. {@code
+ * X-Gateway} tags the implementation, {@code X-Request-Id} correlates the request, and {@code
+ * X-Process-Time} records end-to-end gateway latency in milliseconds.
  *
- * Headers are set before the response is committed (no body capture), symmetric
- * with Loom's {@code selectClientHeaders} and avoiding the reactive-body
- * interception problem that makes response caching awkward on SCG.
+ * <p>Headers are set before the response is committed (no body capture), symmetric with Loom's
+ * {@code selectClientHeaders} and avoiding the reactive-body interception problem that makes
+ * response caching awkward on SCG.
  */
 @Component
 public class ResponseHeadersGatewayFilterFactory
@@ -50,9 +49,15 @@ public class ResponseHeadersGatewayFilterFactory
             // X-Process-Time is filled in just before commit, when the upstream
             // has responded, so the latency figure is accurate.
             return chain.filter(exchange)
-                    .then(Mono.fromRunnable(() -> response.getHeaders().set(
-                            "X-Process-Time",
-                            Duration.between(start, Instant.now()).toMillis() + "ms")));
+                    .then(
+                            Mono.fromRunnable(
+                                    () ->
+                                            response.getHeaders()
+                                                    .set(
+                                                            "X-Process-Time",
+                                                            Duration.between(start, Instant.now())
+                                                                            .toMillis()
+                                                                    + "ms")));
         };
     }
 
@@ -61,8 +66,7 @@ public class ResponseHeadersGatewayFilterFactory
         public Boolean requestId = true;
         public Boolean processTime = true;
 
-        public Config() {
-        }
+        public Config() {}
 
         public ResponseHeadersGatewayFilterFactory.Config setGateway(String gateway) {
             this.gateway = gateway;

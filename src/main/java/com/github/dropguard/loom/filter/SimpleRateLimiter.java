@@ -8,9 +8,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.jboss.logging.Logger;
 
 /**
- * Fixed-window rate limiter. Supports per-key buckets (e.g. one bucket per
- * client identity) so a single client cannot exhaust the whole route's quota.
- * Expired buckets are lazily evicted to keep the map bounded (DEFECT #20 sibling).
+ * Fixed-window rate limiter. Supports per-key buckets (e.g. one bucket per client identity) so a
+ * single client cannot exhaust the whole route's quota. Expired buckets are lazily evicted to keep
+ * the map bounded (DEFECT #20 sibling).
  */
 public class SimpleRateLimiter {
 
@@ -28,8 +28,8 @@ public class SimpleRateLimiter {
     }
 
     /**
-     * @param key bucket key; pass a stable constant (e.g. the route id) to get
-     *            a single route-wide bucket, or a per-client id for fairness.
+     * @param key bucket key; pass a stable constant (e.g. the route id) to get a single route-wide
+     *     bucket, or a per-client id for fairness.
      */
     public boolean tryAcquire(String key) {
         Bucket bucket = buckets.computeIfAbsent(key, k -> new Bucket());
@@ -41,13 +41,16 @@ public class SimpleRateLimiter {
     }
 
     /**
-     * Drop buckets whose window has fully elapsed and have no in-flight count,
-     * so the map does not grow without bound under many distinct clients.
+     * Drop buckets whose window has fully elapsed and have no in-flight count, so the map does not
+     * grow without bound under many distinct clients.
      */
     void evictExpired() {
         long now = System.currentTimeMillis();
-        buckets.entrySet().removeIf(e ->
-                now - e.getValue().windowStart() >= windowMs && e.getValue().count() == 0);
+        buckets.entrySet()
+                .removeIf(
+                        e ->
+                                now - e.getValue().windowStart() >= windowMs
+                                        && e.getValue().count() == 0);
     }
 
     public int getLimit() {

@@ -41,17 +41,25 @@ class FilterChainIntegrationTest {
     void setUp() {
         authFilter = new AuthFilter();
         rateLimitFilter = new RateLimitFilter();
-        circuitBreakerFilter = new CircuitBreakerFilter(new CircuitBreakerRegistry(), new GatewayMetrics(new SimpleMeterRegistry()));
+        circuitBreakerFilter =
+                new CircuitBreakerFilter(
+                        new CircuitBreakerRegistry(),
+                        new GatewayMetrics(new SimpleMeterRegistry()));
         cacheFilter = new CacheFilter();
     }
 
     @Test
     void testAuthBlocksBeforeRateLimit() throws Exception {
-        RouteConfig route = new RouteConfig("r1", "/**", null, "backend:8080",
-                FilterConfig.builder()
-                        .auth(new AuthConfig("jwt", true, JWT_SECRET, null))
-                        .rateLimit(new RateLimitConfig(1000, 1000))
-                        .build());
+        RouteConfig route =
+                new RouteConfig(
+                        "r1",
+                        "/**",
+                        null,
+                        "backend:8080",
+                        FilterConfig.builder()
+                                .auth(new AuthConfig("jwt", true, JWT_SECRET, null))
+                                .rateLimit(new RateLimitConfig(1000, 1000))
+                                .build());
         FilterContext ctx = newTestContext(route);
 
         AtomicBoolean nextCalled = new AtomicBoolean(false);
@@ -67,8 +75,13 @@ class FilterChainIntegrationTest {
         MockResponse resp = new MockResponse();
         FilterContext ctx = new FilterContext(req, resp);
 
-        RouteConfig route = new RouteConfig("r1", "/**", null, "backend:8080",
-                FilterConfig.builder().cache(new CacheConfig(true, 60)).build());
+        RouteConfig route =
+                new RouteConfig(
+                        "r1",
+                        "/**",
+                        null,
+                        "backend:8080",
+                        FilterConfig.builder().cache(new CacheConfig(true, 60)).build());
         ctx.route(route);
 
         AtomicBoolean nextCalled = new AtomicBoolean(false);
@@ -78,8 +91,15 @@ class FilterChainIntegrationTest {
 
     @Test
     void testCircuitBreakerBlocksAfterFailures() throws Exception {
-        RouteConfig route = new RouteConfig("r1", "/**", null, "backend:8080",
-                FilterConfig.builder().circuitBreaker(new CircuitBreakerConfig(3, 5000)).build());
+        RouteConfig route =
+                new RouteConfig(
+                        "r1",
+                        "/**",
+                        null,
+                        "backend:8080",
+                        FilterConfig.builder()
+                                .circuitBreaker(new CircuitBreakerConfig(3, 5000))
+                                .build());
 
         for (int i = 0; i < 3; i++) {
             FilterContext ctx = newTestContext(route);
@@ -95,10 +115,21 @@ class FilterChainIntegrationTest {
 
     @Test
     void testGrayReleaseChangesUpstream() throws Exception {
-        RouteConfig route = new RouteConfig("r1", "/**", null, "backend:8080",
-                FilterConfig.builder()
-                        .gray(new GrayConfig("percentage", "gray-backend:8080", 100.0, null, null))
-                        .build());
+        RouteConfig route =
+                new RouteConfig(
+                        "r1",
+                        "/**",
+                        null,
+                        "backend:8080",
+                        FilterConfig.builder()
+                                .gray(
+                                        new GrayConfig(
+                                                "percentage",
+                                                "gray-backend:8080",
+                                                100.0,
+                                                null,
+                                                null))
+                                .build());
         FilterContext ctx = newTestContext(route);
         ctx.claims(java.util.Map.of("sub", (Object) "user-1"));
 
@@ -122,19 +153,29 @@ class FilterChainIntegrationTest {
         MockResponse resp = new MockResponse();
         FilterContext ctx = new FilterContext(req, resp);
 
-        RouteConfig route = new RouteConfig("r1", "/api/data", null, "backend:8080",
-                FilterConfig.builder()
-                        .auth(new AuthConfig("jwt", true, JWT_SECRET, null))
-                        .rateLimit(new RateLimitConfig(100, 1000))
-                        .circuitBreaker(new CircuitBreakerConfig(5, 5000))
-                        .cache(new CacheConfig(true, 60))
-                        .gray(new GrayConfig("percentage", "backend:8080", 0.0, null, null))
-                        .build());
+        RouteConfig route =
+                new RouteConfig(
+                        "r1",
+                        "/api/data",
+                        null,
+                        "backend:8080",
+                        FilterConfig.builder()
+                                .auth(new AuthConfig("jwt", true, JWT_SECRET, null))
+                                .rateLimit(new RateLimitConfig(100, 1000))
+                                .circuitBreaker(new CircuitBreakerConfig(5, 5000))
+                                .cache(new CacheConfig(true, 60))
+                                .gray(new GrayConfig("percentage", "backend:8080", 0.0, null, null))
+                                .build());
         ctx.route(route);
 
-        FilterChain chain = new FilterChain(java.util.List.of(
-                authFilter, rateLimitFilter, circuitBreakerFilter,
-                new GrayReleaseFilter(), cacheFilter));
+        FilterChain chain =
+                new FilterChain(
+                        java.util.List.of(
+                                authFilter,
+                                rateLimitFilter,
+                                circuitBreakerFilter,
+                                new GrayReleaseFilter(),
+                                cacheFilter));
 
         AtomicBoolean proxyCalled = new AtomicBoolean(false);
         chain.execute(ctx, () -> proxyCalled.set(true));
@@ -151,14 +192,17 @@ class FilterChainIntegrationTest {
 
     private String buildJwt(String subject, boolean expired) throws Exception {
         Date now = new Date();
-        JWTClaimsSet claims = new JWTClaimsSet.Builder()
-                .subject(subject)
-                .issuer("test")
-                .issueTime(now)
-                .expirationTime(expired ? new Date(now.getTime() - 10000) : new Date(now.getTime() + 60000))
-                .build();
-        SignedJWT jwt = new SignedJWT(
-                new JWSHeader.Builder(JWSAlgorithm.HS256).build(), claims);
+        JWTClaimsSet claims =
+                new JWTClaimsSet.Builder()
+                        .subject(subject)
+                        .issuer("test")
+                        .issueTime(now)
+                        .expirationTime(
+                                expired
+                                        ? new Date(now.getTime() - 10000)
+                                        : new Date(now.getTime() + 60000))
+                        .build();
+        SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.HS256).build(), claims);
         jwt.sign(new MACSigner(JWT_SECRET));
         return jwt.serialize();
     }

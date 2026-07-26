@@ -1,8 +1,6 @@
 package com.github.dropguard.loom.exception;
 
-/**
- * Thrown when the upstream service is unreachable, times out, or returns an invalid response.
- */
+/** Thrown when the upstream service is unreachable, times out, or returns an invalid response. */
 public class UpstreamException extends GatewayException {
 
     private final int statusCode;

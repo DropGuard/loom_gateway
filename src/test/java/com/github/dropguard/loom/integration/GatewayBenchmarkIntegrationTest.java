@@ -18,10 +18,9 @@ import java.util.Date;
 import org.junit.jupiter.api.Test;
 
 /**
- * Loom half of the symmetric benchmark integration test. Asserts the same
- * features the SCG {@code GatewayScgIntegrationTest} asserts, so both sides of
- * the comparison are locked by CI: JWT auth, claims forwarding, benchmark
- * response headers, per-route timeout, and per-route rate limiting.
+ * Loom half of the symmetric benchmark integration test. Asserts the same features the SCG {@code
+ * GatewayScgIntegrationTest} asserts, so both sides of the comparison are locked by CI: JWT auth,
+ * claims forwarding, benchmark response headers, per-route timeout, and per-route rate limiting.
  */
 @QuarkusTest
 @TestProfile(IntegrationTestProfile.class)
@@ -34,16 +33,12 @@ class GatewayBenchmarkIntegrationTest {
 
     @Test
     void openRouteIsPublic() {
-        given().get("/bench/open/data")
-                .then()
-                .statusCode(200);
+        given().get("/bench/open/data").then().statusCode(200);
     }
 
     @Test
     void authRouteRejectsMissingToken() {
-        given().get("/bench/auth/data")
-                .then()
-                .statusCode(401);
+        given().get("/bench/auth/data").then().statusCode(401);
     }
 
     @Test
@@ -93,9 +88,7 @@ class GatewayBenchmarkIntegrationTest {
     void slowUpstreamReturns504WithinTimeout() {
         // bench-slow routes to a MockBackend handler that delays 1500ms; the
         // gateway's 500ms per-route timeout must trip first and return 504.
-        given().get("/bench/slow/data")
-                .then()
-                .statusCode(504);
+        given().get("/bench/slow/data").then().statusCode(504);
     }
 
     // --- per-route rate limit ---
@@ -112,16 +105,19 @@ class GatewayBenchmarkIntegrationTest {
                 throw new AssertionError("unexpected status " + status);
             }
         }
-        org.junit.jupiter.api.Assertions.assertEquals(5, rejected,
+        org.junit.jupiter.api.Assertions.assertEquals(
+                5,
+                rejected,
                 "fixed-window limiter must reject exactly the requests over the limit");
     }
 
     private static String signedToken(String sub, String scope) throws Exception {
-        JWTClaimsSet claims = new JWTClaimsSet.Builder()
-                .subject(sub)
-                .claim("scope", scope)
-                .expirationTime(new Date(System.currentTimeMillis() + 3600_000))
-                .build();
+        JWTClaimsSet claims =
+                new JWTClaimsSet.Builder()
+                        .subject(sub)
+                        .claim("scope", scope)
+                        .expirationTime(new Date(System.currentTimeMillis() + 3600_000))
+                        .build();
         SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
         jwt.sign(new MACSigner(JWT_SECRET));
         return jwt.serialize();

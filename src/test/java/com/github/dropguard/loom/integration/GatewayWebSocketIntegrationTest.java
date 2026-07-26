@@ -34,10 +34,8 @@ class GatewayWebSocketIntegrationTest {
 
     @AfterAll
     static void tearDown() {
-        if (client != null)
-            client.close();
-        if (vertx != null)
-            vertx.close();
+        if (client != null) client.close();
+        if (vertx != null) vertx.close();
     }
 
     @Test
@@ -45,10 +43,11 @@ class GatewayWebSocketIntegrationTest {
         var result = new CompletableFuture<String>();
 
         client.webSocket(wsOpts("/ws/public/echo"))
-                .onSuccess(ws -> {
-                    ws.textMessageHandler(result::complete);
-                    ws.writeTextMessage("hello");
-                })
+                .onSuccess(
+                        ws -> {
+                            ws.textMessageHandler(result::complete);
+                            ws.writeTextMessage("hello");
+                        })
                 .onFailure(result::completeExceptionally);
 
         assertEquals("echo:hello", result.get(5, TimeUnit.SECONDS));
@@ -57,13 +56,14 @@ class GatewayWebSocketIntegrationTest {
     @Test
     void wsPublicRoute_echoBinary() throws Exception {
         var result = new CompletableFuture<byte[]>();
-        byte[] payload = new byte[]{1, 2, 3, 4, 5};
+        byte[] payload = new byte[] {1, 2, 3, 4, 5};
 
         client.webSocket(wsOpts("/ws/public/echo"))
-                .onSuccess(ws -> {
-                    ws.binaryMessageHandler(buf -> result.complete(buf.getBytes()));
-                    ws.writeBinaryMessage(io.vertx.core.buffer.Buffer.buffer(payload));
-                })
+                .onSuccess(
+                        ws -> {
+                            ws.binaryMessageHandler(buf -> result.complete(buf.getBytes()));
+                            ws.writeBinaryMessage(io.vertx.core.buffer.Buffer.buffer(payload));
+                        })
                 .onFailure(result::completeExceptionally);
 
         assertArrayEquals(payload, result.get(5, TimeUnit.SECONDS));
@@ -74,10 +74,11 @@ class GatewayWebSocketIntegrationTest {
         var result = new CompletableFuture<Integer>();
 
         client.webSocket(wsOpts("/ws/chat/room1"))
-                .onSuccess(ws -> {
-                    result.complete(-1);
-                    ws.close();
-                })
+                .onSuccess(
+                        ws -> {
+                            result.complete(-1);
+                            ws.close();
+                        })
                 .onFailure(err -> result.complete(401));
 
         // The connection should fail because auth filter rejects before upgrade
@@ -95,10 +96,11 @@ class GatewayWebSocketIntegrationTest {
         opts.addHeader("Authorization", "Bearer " + token);
 
         client.webSocket(opts)
-                .onSuccess(ws -> {
-                    ws.textMessageHandler(result::complete);
-                    ws.writeTextMessage("authenticated");
-                })
+                .onSuccess(
+                        ws -> {
+                            ws.textMessageHandler(result::complete);
+                            ws.writeTextMessage("authenticated");
+                        })
                 .onFailure(result::completeExceptionally);
 
         assertEquals("echo:authenticated", result.get(5, TimeUnit.SECONDS));
@@ -109,10 +111,11 @@ class GatewayWebSocketIntegrationTest {
         var closed = new CompletableFuture<Void>();
 
         client.webSocket(wsOpts("/ws/public/echo"))
-                .onSuccess(ws -> {
-                    ws.closeHandler(v -> closed.complete(null));
-                    ws.close();
-                })
+                .onSuccess(
+                        ws -> {
+                            ws.closeHandler(v -> closed.complete(null));
+                            ws.close();
+                        })
                 .onFailure(closed::completeExceptionally);
 
         assertDoesNotThrow(() -> closed.get(5, TimeUnit.SECONDS));
@@ -123,36 +126,39 @@ class GatewayWebSocketIntegrationTest {
         var result = new CompletableFuture<Boolean>();
 
         client.webSocket(wsOpts("/no/such/ws/route"))
-                .onSuccess(ws -> {
-                    result.complete(false);
-                    ws.close();
-                })
+                .onSuccess(
+                        ws -> {
+                            result.complete(false);
+                            ws.close();
+                        })
                 .onFailure(err -> result.complete(true));
 
         assertTrue(result.get(5, TimeUnit.SECONDS));
     }
 
     private WebSocketConnectOptions wsOpts(String path) {
-        return new WebSocketConnectOptions()
-                .setHost("localhost")
-                .setPort(8081)
-                .setURI(path);
+        return new WebSocketConnectOptions().setHost("localhost").setPort(8081).setURI(path);
     }
 
     private String buildJwt(String subject, boolean expired) throws Exception {
         java.util.Date now = new java.util.Date();
-        var claims = new com.nimbusds.jwt.JWTClaimsSet.Builder()
-                .subject(subject)
-                .issuer("test")
-                .issueTime(now)
-                .expirationTime(expired
-                        ? new java.util.Date(now.getTime() - 10000)
-                        : new java.util.Date(now.getTime() + 60000))
-                .build();
+        var claims =
+                new com.nimbusds.jwt.JWTClaimsSet.Builder()
+                        .subject(subject)
+                        .issuer("test")
+                        .issueTime(now)
+                        .expirationTime(
+                                expired
+                                        ? new java.util.Date(now.getTime() - 10000)
+                                        : new java.util.Date(now.getTime() + 60000))
+                        .build();
 
-        var jwt = new com.nimbusds.jwt.SignedJWT(
-                new com.nimbusds.jose.JWSHeader.Builder(com.nimbusds.jose.JWSAlgorithm.HS256).build(),
-                claims);
+        var jwt =
+                new com.nimbusds.jwt.SignedJWT(
+                        new com.nimbusds.jose.JWSHeader.Builder(
+                                        com.nimbusds.jose.JWSAlgorithm.HS256)
+                                .build(),
+                        claims);
         jwt.sign(new com.nimbusds.jose.crypto.MACSigner(JWT_SECRET));
         return jwt.serialize();
     }

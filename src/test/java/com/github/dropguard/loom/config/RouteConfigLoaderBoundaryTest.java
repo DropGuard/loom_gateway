@@ -2,24 +2,20 @@ package com.github.dropguard.loom.config;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.github.dropguard.loom.model.GatewayConfig;
+import com.github.dropguard.loom.model.RouteConfig;
+import com.github.dropguard.loom.model.RouteConfig.AuthConfig;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-
-import com.github.dropguard.loom.model.GatewayConfig;
-import com.github.dropguard.loom.model.RouteConfig;
-import com.github.dropguard.loom.model.RouteConfig.AuthConfig;
-
-import io.quarkus.vertx.web.Route;
 
 /**
- * Exercises RouteConfigLoader branches that the happy-path tests skip:
- * file-not-found, malformed YAML, per-route auth extraction, and pattern
- * compilation. These are the failure modes that matter in production (a bad
- * mounted ConfigMap must not silently yield an empty route table).
+ * Exercises RouteConfigLoader branches that the happy-path tests skip: file-not-found, malformed
+ * YAML, per-route auth extraction, and pattern compilation. These are the failure modes that matter
+ * in production (a bad mounted ConfigMap must not silently yield an empty route table).
  */
 class RouteConfigLoaderBoundaryTest {
 
@@ -46,7 +42,9 @@ class RouteConfigLoaderBoundaryTest {
     @Test
     void validFile_loadsRoutesAndAuth() throws IOException {
         Path ok = Files.createTempFile("ok-routes", ".yaml");
-        Files.writeString(ok, """
+        Files.writeString(
+                ok,
+                """
                 routes:
                   - id: api-users
                     path: /api/users/**
@@ -72,7 +70,9 @@ class RouteConfigLoaderBoundaryTest {
     @Test
     void methodNotListed_routeDoesNotMatch() throws IOException {
         Path ok = Files.createTempFile("ok-routes", ".yaml");
-        Files.writeString(ok, """
+        Files.writeString(
+                ok,
+                """
                 routes:
                   - id: api-users
                     path: /api/users/**
@@ -83,14 +83,17 @@ class RouteConfigLoaderBoundaryTest {
         loader.loadFromPath(ok.toString());
 
         assertNotNull(loader.findMatchingRoute("/api/users/123", "GET"));
-        assertNull(loader.findMatchingRoute("/api/users/123", "DELETE"),
+        assertNull(
+                loader.findMatchingRoute("/api/users/123", "DELETE"),
                 "DELETE is not in the route's methods");
     }
 
     @Test
     void unknownPath_routeDoesNotMatch() throws IOException {
         Path ok = Files.createTempFile("ok-routes", ".yaml");
-        Files.writeString(ok, """
+        Files.writeString(
+                ok,
+                """
                 routes:
                   - id: api-users
                     path: /api/users/**

@@ -31,14 +31,17 @@ public class AuthFilter implements Filter {
         }
 
         String type = auth.type() != null ? auth.type().toLowerCase() : "";
-        FilterResult result = switch (type) {
-            case "jwt" -> validateJwt(context, auth);
-            case "api-key" -> validateApiKey(context, auth);
-            default -> {
-                LOG.warnf("Unknown auth type '%s' for route '%s'", type, context.route().id());
-                yield FilterResult.stop(403, "Unsupported auth type");
-            }
-        };
+        FilterResult result =
+                switch (type) {
+                    case "jwt" -> validateJwt(context, auth);
+                    case "api-key" -> validateApiKey(context, auth);
+                    default -> {
+                        LOG.warnf(
+                                "Unknown auth type '%s' for route '%s'",
+                                type, context.route().id());
+                        yield FilterResult.stop(403, "Unsupported auth type");
+                    }
+                };
 
         if (result.continueChain()) {
             next.run();

@@ -5,14 +5,16 @@ import com.github.dropguard.loom.model.RouteConfig.CircuitBreakerConfig;
 import org.jboss.logging.Logger;
 
 enum CircuitState {
-    CLOSED, OPEN, HALF_OPEN
+    CLOSED,
+    OPEN,
+    HALF_OPEN
 }
 
 /**
- * Per-route circuit breaker state machine. All transitions are guarded by a
- * single monitor lock: the state is pure in-memory and microsecond-scale, so a
- * plain synchronized block is both correct and clearer than compare-and-set
- * gymnastics. The lock also provides single-flight into HALF_OPEN for free.
+ * Per-route circuit breaker state machine. All transitions are guarded by a single monitor lock:
+ * the state is pure in-memory and microsecond-scale, so a plain synchronized block is both correct
+ * and clearer than compare-and-set gymnastics. The lock also provides single-flight into HALF_OPEN
+ * for free.
  */
 public class SimpleCircuitBreaker {
 

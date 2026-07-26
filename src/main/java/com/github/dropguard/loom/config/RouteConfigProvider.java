@@ -5,5 +5,6 @@ import com.github.dropguard.loom.model.RouteConfig;
 
 public interface RouteConfigProvider {
     RouteConfig findMatchingRoute(String path, String method);
+
     GatewayConfig getConfig();
 }

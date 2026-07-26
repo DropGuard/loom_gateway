@@ -14,8 +14,7 @@ import org.eclipse.microprofile.health.Readiness;
 @Singleton
 public class GatewayReadinessCheck implements HealthCheck {
 
-    @Inject
-    RouteConfigProvider routeConfigProvider;
+    @Inject RouteConfigProvider routeConfigProvider;
 
     @Override
     public HealthCheckResponse call() {

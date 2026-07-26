@@ -12,9 +12,6 @@ public class GatewayLivenessCheck implements HealthCheck {
 
     @Override
     public HealthCheckResponse call() {
-        return HealthCheckResponse.builder()
-                .name("gateway-live")
-                .up()
-                .build();
+        return HealthCheckResponse.builder().name("gateway-live").up().build();
     }
 }

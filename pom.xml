@@ -206,10 +206,10 @@
                 <version>2.44.4</version>
                 <configuration>
                     <java>
-                        <eclipse>
-                            <version>4.33</version>
-                            <file>${project.basedir}/.mvn/eclipse-formatter.xml</file>
-                        </eclipse>
+                        <googleJavaFormat>
+                            <version>1.35.0</version>
+                            <style>AOSP</style>
+                        </googleJavaFormat>
                         <importOrder>
                             <order>com,io,jakarta,java,javax,org</order>
                         </importOrder>

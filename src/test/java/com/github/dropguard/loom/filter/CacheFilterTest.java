@@ -35,21 +35,23 @@ class CacheFilterTest {
         GatewayMetrics metrics = new GatewayMetrics(new SimpleMeterRegistry());
 
         // Create a simple Instance wrapper for testing
-        Instance<LocalCacheManager> instance = (Instance<LocalCacheManager>) java.lang.reflect.Proxy.newProxyInstance(
-                Instance.class.getClassLoader(),
-                new Class<?>[] { Instance.class },
-                (proxy, method, args) -> {
-                    return switch (method.getName()) {
-                        case "get" -> cache;
-                        case "iterator" -> java.util.List.of(cache).iterator();
-                        case "stream" -> Stream.of(cache);
-                        case "isUnsatisfied" -> false;
-                        case "isAmbiguous" -> false;
-                        case "isResolvable" -> true;
-                        case "select" -> proxy;
-                        default -> null;
-                    };
-                });
+        Instance<LocalCacheManager> instance =
+                (Instance<LocalCacheManager>)
+                        java.lang.reflect.Proxy.newProxyInstance(
+                                Instance.class.getClassLoader(),
+                                new Class<?>[] {Instance.class},
+                                (proxy, method, args) -> {
+                                    return switch (method.getName()) {
+                                        case "get" -> cache;
+                                        case "iterator" -> java.util.List.of(cache).iterator();
+                                        case "stream" -> Stream.of(cache);
+                                        case "isUnsatisfied" -> false;
+                                        case "isAmbiguous" -> false;
+                                        case "isResolvable" -> true;
+                                        case "select" -> proxy;
+                                        default -> null;
+                                    };
+                                });
 
         filter = new CacheFilter(instance, metrics);
         request = new MockRequest();
@@ -64,7 +66,11 @@ class CacheFilterTest {
     }
 
     private RouteConfig routeWithCache(CacheConfig cacheConfig) {
-        return new RouteConfig("r1", "/**", null, "localhost:8080",
+        return new RouteConfig(
+                "r1",
+                "/**",
+                null,
+                "localhost:8080",
                 FilterConfig.builder().cache(cacheConfig).build());
     }
 
@@ -113,7 +119,12 @@ class CacheFilterTest {
     @Test
     void testCacheKeyWithJwtIdentity() throws Exception {
         // Pre-populate cache with user-specific key
-        cache.put("GET:/api/data:user-1", 200, "application/json", "{\"user\":\"user-1\"}".getBytes(), 60);
+        cache.put(
+                "GET:/api/data:user-1",
+                200,
+                "application/json",
+                "{\"user\":\"user-1\"}".getBytes(),
+                60);
 
         context.route(routeWithCache(new CacheConfig(true, 60)));
         context.claims(Map.of("sub", "user-1"));
@@ -125,7 +136,12 @@ class CacheFilterTest {
     @Test
     void testCacheKeyDifferentiatesUsers() throws Exception {
         // Pre-populate cache for user-1 only
-        cache.put("GET:/api/data:user-1", 200, "application/json", "{\"user\":\"user-1\"}".getBytes(), 60);
+        cache.put(
+                "GET:/api/data:user-1",
+                200,
+                "application/json",
+                "{\"user\":\"user-1\"}".getBytes(),
+                60);
 
         context.route(routeWithCache(new CacheConfig(true, 60)));
         context.claims(Map.of("sub", "user-2")); // different user
@@ -139,7 +155,8 @@ class CacheFilterTest {
     @Test
     void anonResponseDoesNotPolluteAuthenticatedCaller_onAuthRoute() throws Exception {
         // A public ("please log in") body was cached under the :anon key.
-        cache.put("GET:/api/data:anon", 200, "application/json", "{\"public\":true}".getBytes(), 60);
+        cache.put(
+                "GET:/api/data:anon", 200, "application/json", "{\"public\":true}".getBytes(), 60);
 
         // An authenticated user arrives on the SAME uri.
         RouteConfig authRoute = routeWithAuthCache(new CacheConfig(true, 60), "jwt");
@@ -153,7 +170,8 @@ class CacheFilterTest {
 
     @Test
     void anonymousCallerHitsAnonPartition_onAuthRoute() throws Exception {
-        cache.put("GET:/api/data:anon", 200, "application/json", "{\"public\":true}".getBytes(), 60);
+        cache.put(
+                "GET:/api/data:anon", 200, "application/json", "{\"public\":true}".getBytes(), 60);
 
         // No claims, route supports auth -> key should be :anon -> cache HIT.
         context.route(routeWithAuthCache(new CacheConfig(true, 60), "jwt"));
@@ -177,7 +195,11 @@ class CacheFilterTest {
 
     private RouteConfig routeWithAuthCache(CacheConfig cacheConfig, String authType) {
         AuthConfig auth = new AuthConfig(authType, true, "secret", null);
-        return new RouteConfig("r-auth", "/**", null, "localhost:8080",
+        return new RouteConfig(
+                "r-auth",
+                "/**",
+                null,
+                "localhost:8080",
                 FilterConfig.builder().auth(auth).cache(cacheConfig).build());
     }
 }

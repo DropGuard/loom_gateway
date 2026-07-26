@@ -27,7 +27,8 @@ public class WebSocketProxyHandler {
     private final GatewayMetrics metrics;
     private final CircuitBreakerFilter circuitBreakerFilter;
 
-    public WebSocketProxyHandler(Vertx vertx, GatewayMetrics metrics, CircuitBreakerFilter circuitBreakerFilter) {
+    public WebSocketProxyHandler(
+            Vertx vertx, GatewayMetrics metrics, CircuitBreakerFilter circuitBreakerFilter) {
         this.httpClient = vertx.createHttpClient();
         this.metrics = metrics;
         this.circuitBreakerFilter = circuitBreakerFilter;
@@ -36,8 +37,10 @@ public class WebSocketProxyHandler {
     public void proxy(RoutingContext context, FilterContext filterContext) {
         String effectiveUpstream = filterContext.effectiveUpstream();
         if (effectiveUpstream == null || effectiveUpstream.isBlank()) {
-            throw new ConfigException("No upstream resolved for route '"
-                    + (filterContext.route() != null ? filterContext.route().id() : "?") + "'");
+            throw new ConfigException(
+                    "No upstream resolved for route '"
+                            + (filterContext.route() != null ? filterContext.route().id() : "?")
+                            + "'");
         }
         UpstreamAddress upstream = UpstreamAddress.parse(effectiveUpstream);
         String host = upstream.host();
@@ -52,11 +55,8 @@ public class WebSocketProxyHandler {
 
         String routeId = filterContext.route() != null ? filterContext.route().id() : "?";
 
-        WebSocketConnectOptions opts = new WebSocketConnectOptions()
-                .setHost(host)
-                .setPort(port)
-                .setURI(uri)
-                .setSsl(ssl);
+        WebSocketConnectOptions opts =
+                new WebSocketConnectOptions().setHost(host).setPort(port).setURI(uri).setSsl(ssl);
 
         String subprotocol = context.request().getHeader("Sec-WebSocket-Protocol");
         if (subprotocol != null) {
@@ -71,29 +71,46 @@ public class WebSocketProxyHandler {
         }
 
         String finalUri = uri;
-        context.request().toWebSocket()
-                .onSuccess(clientWs -> {
-                    clientWs.pause();
-                    httpClient.webSocket(opts)
-                            .onSuccess(upstreamWs -> {
-                                circuitBreakerFilter.recordOutcome(routeId, true);
-                                metrics.incrementWsConnections();
-                                LOG.debugf("WebSocket connected: %s -> %s:%d%s", routeId, host, port, finalUri);
-                                pipeFrames(clientWs, upstreamWs);
-                                clientWs.resume();
-                            })
-                            .onFailure(err -> {
-                                circuitBreakerFilter.recordOutcome(routeId, false);
-                                LOG.errorf(err, "Failed to connect upstream WebSocket: %s:%d%s", host, port, finalUri);
-                                clientWs.close(WS_CLOSE_UNEXPECTED_CONDITION, "Upstream connection failed");
-                            });
-                })
-                .onFailure(err -> {
-                    LOG.errorf(err, "Failed to upgrade client WebSocket");
-                    if (!context.response().ended()) {
-                        context.response().setStatusCode(400).end("WebSocket upgrade failed");
-                    }
-                });
+        context.request()
+                .toWebSocket()
+                .onSuccess(
+                        clientWs -> {
+                            clientWs.pause();
+                            httpClient
+                                    .webSocket(opts)
+                                    .onSuccess(
+                                            upstreamWs -> {
+                                                circuitBreakerFilter.recordOutcome(routeId, true);
+                                                metrics.incrementWsConnections();
+                                                LOG.debugf(
+                                                        "WebSocket connected: %s -> %s:%d%s",
+                                                        routeId, host, port, finalUri);
+                                                pipeFrames(clientWs, upstreamWs);
+                                                clientWs.resume();
+                                            })
+                                    .onFailure(
+                                            err -> {
+                                                circuitBreakerFilter.recordOutcome(routeId, false);
+                                                LOG.errorf(
+                                                        err,
+                                                        "Failed to connect upstream WebSocket: %s:%d%s",
+                                                        host,
+                                                        port,
+                                                        finalUri);
+                                                clientWs.close(
+                                                        WS_CLOSE_UNEXPECTED_CONDITION,
+                                                        "Upstream connection failed");
+                                            });
+                        })
+                .onFailure(
+                        err -> {
+                            LOG.errorf(err, "Failed to upgrade client WebSocket");
+                            if (!context.response().ended()) {
+                                context.response()
+                                        .setStatusCode(400)
+                                        .end("WebSocket upgrade failed");
+                            }
+                        });
     }
 
     private void pipeFrames(ServerWebSocket clientWs, WebSocket upstreamWs) {
@@ -103,27 +120,29 @@ public class WebSocketProxyHandler {
         upstreamWs.textMessageHandler(msg -> clientWs.writeTextMessage(msg));
         upstreamWs.binaryMessageHandler(buf -> clientWs.writeBinaryMessage(buf));
 
-        clientWs.closeHandler(v -> {
-            metrics.decrementWsConnections();
-            if (!upstreamWs.isClosed()) {
-                upstreamWs.close();
-            }
-        });
-        upstreamWs.closeHandler(v -> {
-            if (!clientWs.isClosed()) {
-                clientWs.close();
-            }
-        });
+        clientWs.closeHandler(
+                v -> {
+                    metrics.decrementWsConnections();
+                    if (!upstreamWs.isClosed()) {
+                        upstreamWs.close();
+                    }
+                });
+        upstreamWs.closeHandler(
+                v -> {
+                    if (!clientWs.isClosed()) {
+                        clientWs.close();
+                    }
+                });
 
-        clientWs.exceptionHandler(err -> {
-            LOG.debugf("Client WebSocket error: %s", err.getMessage());
-            if (!upstreamWs.isClosed())
-                upstreamWs.close();
-        });
-        upstreamWs.exceptionHandler(err -> {
-            LOG.debugf("Upstream WebSocket error: %s", err.getMessage());
-            if (!clientWs.isClosed())
-                clientWs.close();
-        });
+        clientWs.exceptionHandler(
+                err -> {
+                    LOG.debugf("Client WebSocket error: %s", err.getMessage());
+                    if (!upstreamWs.isClosed()) upstreamWs.close();
+                });
+        upstreamWs.exceptionHandler(
+                err -> {
+                    LOG.debugf("Upstream WebSocket error: %s", err.getMessage());
+                    if (!clientWs.isClosed()) clientWs.close();
+                });
     }
 }

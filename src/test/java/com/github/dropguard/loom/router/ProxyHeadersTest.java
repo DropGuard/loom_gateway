@@ -2,18 +2,17 @@ package com.github.dropguard.loom.router;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import io.vertx.core.MultiMap;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 
 import org.junit.jupiter.api.Test;
 
-import io.vertx.core.MultiMap;
-
 /**
- * Zero-mock unit tests for ProxyHeaders: the header transformations that used
- * to be buried inside HttpProxyHandler.proxy() behind a 7-layer Vert.x mock.
- * These assert the pure mapping directly.
+ * Zero-mock unit tests for ProxyHeaders: the header transformations that used to be buried inside
+ * HttpProxyHandler.proxy() behind a 7-layer Vert.x mock. These assert the pure mapping directly.
  */
 class ProxyHeadersTest {
 
@@ -42,8 +41,9 @@ class ProxyHeadersTest {
         MultiMap incoming = MultiMap.caseInsensitiveMultiMap();
         incoming.add("Accept", "application/json");
 
-        Map<String, String> out = ProxyHeaders.buildForwardHeaders(
-                entriesOf(incoming), Map.of("sub", "user-42"), List.of("sub"));
+        Map<String, String> out =
+                ProxyHeaders.buildForwardHeaders(
+                        entriesOf(incoming), Map.of("sub", "user-42"), List.of("sub"));
 
         assertEquals("user-42", out.get("X-User-Id"));
         assertEquals("application/json", out.get("Accept"));
@@ -54,8 +54,8 @@ class ProxyHeadersTest {
         MultiMap incoming = MultiMap.caseInsensitiveMultiMap();
         incoming.add("Accept", "application/json");
 
-        Map<String, String> out = ProxyHeaders.buildForwardHeaders(
-                entriesOf(incoming), Map.of(), List.of("sub"));
+        Map<String, String> out =
+                ProxyHeaders.buildForwardHeaders(entriesOf(incoming), Map.of(), List.of("sub"));
 
         assertNull(out.get("X-User-Id"));
     }
@@ -90,8 +90,8 @@ class ProxyHeadersTest {
         MultiMap incoming = MultiMap.caseInsensitiveMultiMap();
         Map<String, Object> claims = Map.of("sub", "user-7", "scope", "read");
 
-        Map<String, String> out = ProxyHeaders.buildForwardHeaders(
-                entriesOf(incoming), claims, List.of("sub"));
+        Map<String, String> out =
+                ProxyHeaders.buildForwardHeaders(entriesOf(incoming), claims, List.of("sub"));
 
         assertEquals("user-7", out.get("X-User-Id"));
         assertNull(out.get("X-Claim-scope")); // not in the forward list
@@ -102,8 +102,9 @@ class ProxyHeadersTest {
         MultiMap incoming = MultiMap.caseInsensitiveMultiMap();
         Map<String, Object> claims = Map.of("sub", "user-7", "scope", "read", "tenant", "acme");
 
-        Map<String, String> out = ProxyHeaders.buildForwardHeaders(
-                entriesOf(incoming), claims, List.of("sub", "scope", "tenant"));
+        Map<String, String> out =
+                ProxyHeaders.buildForwardHeaders(
+                        entriesOf(incoming), claims, List.of("sub", "scope", "tenant"));
 
         assertEquals("user-7", out.get("X-User-Id"));
         assertEquals("read", out.get("X-Claim-scope"));
@@ -115,8 +116,9 @@ class ProxyHeadersTest {
         MultiMap incoming = MultiMap.caseInsensitiveMultiMap();
         Map<String, Object> claims = Map.of("sub", "user-7");
 
-        Map<String, String> out = ProxyHeaders.buildForwardHeaders(
-                entriesOf(incoming), claims, List.of("sub", "scope"));
+        Map<String, String> out =
+                ProxyHeaders.buildForwardHeaders(
+                        entriesOf(incoming), claims, List.of("sub", "scope"));
 
         assertEquals("user-7", out.get("X-User-Id"));
         assertNull(out.get("X-Claim-scope")); // absent from claims -> not injected
@@ -127,8 +129,8 @@ class ProxyHeadersTest {
         MultiMap incoming = MultiMap.caseInsensitiveMultiMap();
         incoming.add("Accept", "application/json");
 
-        Map<String, String> out = ProxyHeaders.buildForwardHeaders(
-                entriesOf(incoming), Map.of(), null);
+        Map<String, String> out =
+                ProxyHeaders.buildForwardHeaders(entriesOf(incoming), Map.of(), null);
 
         assertNull(out.get("X-User-Id"));
         assertEquals("application/json", out.get("Accept"));

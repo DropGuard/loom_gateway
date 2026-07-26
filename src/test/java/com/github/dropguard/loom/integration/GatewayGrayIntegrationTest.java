@@ -72,10 +72,6 @@ class GatewayGrayIntegrationTest {
 
     @Test
     void gray_withoutAuth_returns401_notCanary() {
-        RestAssured.given()
-                .header("X-Canary", "true")
-                .get("/api/gray/me")
-                .then()
-                .statusCode(401);
+        RestAssured.given().header("X-Canary", "true").get("/api/gray/me").then().statusCode(401);
     }
 }
