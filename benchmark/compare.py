@@ -33,9 +33,14 @@ def main():
         ("auth med",    fmt_ms(loom["auth_latency"]["med"]),    fmt_ms(scg["auth_latency"]["med"])),
         ("auth P90",    fmt_ms(loom["auth_latency"]["p(90)"]),  fmt_ms(scg["auth_latency"]["p(90)"])),
         ("auth P95",    fmt_ms(loom["auth_latency"]["p(95)"]),  fmt_ms(scg["auth_latency"]["p(95)"])),
+        ("cache avg",   fmt_ms(loom["cache_latency"]["avg"]),   fmt_ms(scg["cache_latency"]["avg"])),
+        ("cache med",   fmt_ms(loom["cache_latency"]["med"]),   fmt_ms(scg["cache_latency"]["med"])),
+        ("cache P90",   fmt_ms(loom["cache_latency"]["p(90)"]), fmt_ms(scg["cache_latency"]["p(90)"])),
+        ("cache P95",   fmt_ms(loom["cache_latency"]["p(95)"]), fmt_ms(scg["cache_latency"]["p(95)"])),
         ("RPS",         fmt_count(loom["http_reqs"]["rate"]),    fmt_count(scg["http_reqs"]["rate"])),
         ("open errors", fmt_rate(loom["open_errors"]["rate"]),   fmt_rate(scg["open_errors"]["rate"])),
         ("auth errors", fmt_rate(loom["auth_errors"]["rate"]),   fmt_rate(scg["auth_errors"]["rate"])),
+        ("cache errors", fmt_rate(loom["cache_errors"]["rate"]), fmt_rate(scg["cache_errors"]["rate"])),
     ]
 
     lines = [
@@ -50,6 +55,10 @@ def main():
     lines.append("")
     lines.append(f"- Loom Gateway name: `{loom['gateway']}`")
     lines.append(f"- SCG name: `{scg['gateway']}`")
+    lines.append("")
+    lines.append("> Both gateways sit on Netty (SCG=Reactor Netty, Loom=Vert.x/Netty). "
+                 "This compares programming models on a shared transport. "
+                 "See `benchmark/RESULTS.md` for interpretation.")
 
     output = RESULTS_DIR / "compare.md"
     output.write_text("\n".join(lines) + "\n")

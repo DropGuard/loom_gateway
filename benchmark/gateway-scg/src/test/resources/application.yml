@@ -1,16 +1,9 @@
-server:
-  port: 8080
-
-gateway:
-  jwt:
-    secret: "bench-secret-key-that-is-at-least-32-chars!"
-
 spring:
   cloud:
     gateway:
       routes:
         - id: bench-open
-          uri: http://mock-backend:80
+          uri: http://localhost:9561
           predicates:
             - Path=/bench/open/**
           filters:
@@ -19,13 +12,13 @@ spring:
                 timeout: 500
             - name: RateLimit
               args:
-                limit: 200000
+                limit: 1000
                 windowMs: 1000
             - name: ResponseHeaders
               args:
                 gateway: scg
         - id: bench-auth
-          uri: http://mock-backend:80
+          uri: http://localhost:9561
           predicates:
             - Path=/bench/auth/**
           filters:
@@ -40,30 +33,33 @@ spring:
                 timeout: 500
             - name: RateLimit
               args:
-                limit: 200000
+                limit: 1000
                 windowMs: 1000
+            - name: ResponseHeaders
+              args:
+                gateway: scg
+        - id: bench-ratelimit
+          uri: http://localhost:9561
+          predicates:
+            - Path=/bench/rl/**
+          filters:
+            - name: RateLimit
+              args:
+                limit: 5
+                windowMs: 10000
             - name: ResponseHeaders
               args:
                 gateway: scg
         - id: bench-cache
-          uri: http://mock-backend:80
+          uri: http://localhost:9561
           predicates:
             - Path=/bench/cache/**
           filters:
             - name: Cache
-            - name: RateLimit
-              args:
-                limit: 200000
-                windowMs: 1000
             - name: ResponseHeaders
               args:
                 gateway: scg
 
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health
-  endpoint:
-    health:
-      show-details: always
+gateway:
+  jwt:
+    secret: "bench-secret-key-that-is-at-least-32-chars!"

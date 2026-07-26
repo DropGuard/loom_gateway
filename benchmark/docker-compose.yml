@@ -7,7 +7,7 @@ services:
   gateway-loom:
     profiles: [loom]
     build:
-      context: ..
+      context: gateway-loom
       dockerfile: Dockerfile
     volumes:
       - ./config:/config:ro

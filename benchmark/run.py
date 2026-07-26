@@ -4,6 +4,7 @@ from pathlib import Path
 
 BENCHMARK_DIR = Path(__file__).parent
 PROJECT_ROOT = BENCHMARK_DIR.parent
+LOOM_DIR = BENCHMARK_DIR / "gateway-loom"
 SCG_DIR = BENCHMARK_DIR / "gateway-scg"
 RESULTS_DIR = BENCHMARK_DIR / "results"
 
@@ -32,8 +33,13 @@ def bench(profile):
     print(f"Result: {result_file}")
 
 def main():
-    print("=== Building Loom Gateway ===")
-    run("mvn clean package -DskipTests -q", cwd=PROJECT_ROOT)
+    print("=== Installing Loom Gateway library (java-gateway) to local repo ===")
+    # gateway-loom consumes java-gateway as a Maven dependency, so the library
+    # must be installed before the benchmark app can resolve it.
+    run("mvn clean install -DskipTests -q", cwd=PROJECT_ROOT)
+
+    print("=== Building Loom Gateway benchmark app ===")
+    run("mvn clean package -DskipTests -q", cwd=LOOM_DIR)
 
     print("=== Building Spring Cloud Gateway ===")
     run("mvn package -DskipTests -q", cwd=SCG_DIR)

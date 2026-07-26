@@ -39,6 +39,8 @@ public class JwtAuthGatewayFilterFactory extends AbstractGatewayFilterFactory<Ob
                     exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
                     return exchange.getResponse().setComplete();
                 }
+                // Publish the claims for downstream filters (e.g. ClaimsForward).
+                exchange.getAttributes().put("claims", jwt.getJWTClaimsSet().getClaims());
             } catch (Exception e) {
                 exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
                 return exchange.getResponse().setComplete();

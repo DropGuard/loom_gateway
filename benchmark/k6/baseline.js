@@ -10,8 +10,10 @@ const JWT_SECRET = "bench-secret-key-that-is-at-least-32-chars!";
 
 const openLatency = new Trend("open_latency", true);
 const authLatency = new Trend("auth_latency", true);
+const cacheLatency = new Trend("cache_latency", true);
 const openErrors = new Rate("open_errors");
 const authErrors = new Rate("auth_errors");
+const cacheErrors = new Rate("cache_errors");
 
 // --- JWT (HS256) via k6/crypto ---
 
@@ -53,6 +55,16 @@ export const options = {
             startTime: "12s",
             exec: "bothEndpoints",
         },
+        cache: {
+            // Repeated identical GETs to /bench/cache/data. After the first
+            // request per key, both gateways serve from cache — this measures
+            // the cache-served read path (no upstream round-trip).
+            executor: "constant-vus",
+            vus: 100,
+            duration: "60s",
+            startTime: "12s",
+            exec: "cacheEndpoint",
+        },
     },
 };
 
@@ -87,13 +99,22 @@ export function bothEndpoints() {
     check(authRes, { "auth 200": (r) => r.status === 200 });
 }
 
+export function cacheEndpoint() {
+    const res = http.get(`${BASE}/bench/cache/data`);
+    cacheLatency.add(res.timings.duration);
+    cacheErrors.add(res.status !== 200);
+    check(res, { "cache 200": (r) => r.status === 200 });
+}
+
 export function handleSummary(data) {
     const result = {
         gateway: __ENV.GATEWAY_NAME || "unknown",
         open_latency: data.metrics.open_latency.values,
         auth_latency: data.metrics.auth_latency.values,
+        cache_latency: data.metrics.cache_latency.values,
         open_errors: data.metrics.open_errors.values,
         auth_errors: data.metrics.auth_errors.values,
+        cache_errors: data.metrics.cache_errors.values,
         http_reqs: data.metrics.http_reqs.values,
     };
     const filename = `/results/${result.gateway}.json`;

@@ -1,3 +1,22 @@
+# Benchmark routes for the Loom Gateway side.
+#
+# This file is the Loom Gateway half of a SYMMETRIC comparison: the filter
+# chain here is intentionally matched feature-for-feature against the Spring
+# Cloud Gateway benchmark app (benchmark/gateway-scg). Both sides run:
+#   - JWT auth (HS256) on the auth route
+#   - fixed-window rate limiting (1000 req / 1s, per-route bucket)
+#   - claims forwarding (sub -> X-User-Id, scope -> X-Claim-scope)
+#   - per-route upstream timeout (500ms)
+#   - benchmark response headers (X-Gateway / X-Request-Id / X-Process-Time)
+# so the measured difference reflects virtual-thread vs platform-thread
+# scheduling under an identical, production-like filter chain — not a
+# difference in how many filters each side happens to run.
+#
+# The Loom Gateway benchmark image reuses the real project's filters
+# (AuthFilter / RateLimitFilter / HttpProxyHandler); only this config is swapped
+# in at container start, which keeps the comparison honest (it is the real
+# gateway under load, not a stripped-down proxy).
+
 routes:
   - id: bench-open
     path: /bench/open/**
@@ -5,8 +24,12 @@ routes:
     upstream: mock-backend:80
     filters:
       rateLimit:
-        limit: 100000
+        limit: 200000
         windowMs: 1000
+      timeout:
+        timeoutMs: 500
+      claimsForward:
+        claims: [sub]
 
   - id: bench-auth
     path: /bench/auth/**
@@ -18,5 +41,27 @@ routes:
         required: true
         secret: "bench-secret-key-that-is-at-least-32-chars!"
       rateLimit:
-        limit: 100000
+        limit: 200000
         windowMs: 1000
+      claimsForward:
+        claims: [sub, scope]
+      timeout:
+        timeoutMs: 500
+
+  # Cache route (the Loom half of the symmetric cache comparison). The real
+  # CacheFilter reads the upstream body via onResponse and memoizes it under a
+  # method:uri:identity key; the 2nd identical request is served from cache
+  # without touching the upstream.
+  - id: bench-cache
+    path: /bench/cache/**
+    methods: [GET]
+    upstream: mock-backend:80
+    filters:
+      rateLimit:
+        limit: 200000
+        windowMs: 1000
+      cache:
+        enabled: true
+        ttlSeconds: 30
+      timeout:
+        timeoutMs: 500
