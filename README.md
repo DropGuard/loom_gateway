@@ -96,6 +96,13 @@ routes:
 
 Controlled comparison under identical conditions: same k6 load script, same nginx mock backend, same resource limits (2 CPU / 512M), Docker containers.
 
+The benchmark lives under `benchmark/` as **two symmetric external projects**:
+
+- `benchmark/gateway-scg` — a standalone Spring Cloud Gateway app (its own `pom.xml`, consumes `spring-cloud-starter-gateway`).
+- `benchmark/gateway-loom` — a standalone Quarkus app that consumes the **main `loom-gateway` project as a Maven dependency** (`com.github.dropguard:loom-gateway`) and lets ArC discover its filter-chain beans. No filter re-implementation.
+
+Both are built and run by `python run.py` (which `mvn install`s the root library first, then packages each benchmark app and runs the k6 scenarios). `benchmark/RESULTS.md` explains the numbers and their interpretation.
+
 | Metric | Loom Gateway | Spring Cloud Gateway |
 |--------|-------------|---------------------|
 | open avg | 6.65ms | 14.91ms |
