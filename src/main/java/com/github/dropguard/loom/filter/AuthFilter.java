@@ -50,6 +50,19 @@ public class AuthFilter implements Filter {
         }
     }
 
+    private final java.util.concurrent.ConcurrentHashMap<String, JWSVerifier> verifierCache =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private JWSVerifier getOrCreateVerifier(String secret) throws JOSEException {
+        JWSVerifier verifier = verifierCache.get(secret);
+        if (verifier != null) {
+            return verifier;
+        }
+        verifier = new MACVerifier(secret);
+        verifierCache.put(secret, verifier);
+        return verifier;
+    }
+
     FilterResult validateJwt(FilterContext context, AuthConfig auth) {
         HttpServerRequest request = context.request();
         String authHeader = request.getHeader("Authorization");
@@ -67,7 +80,7 @@ public class AuthFilter implements Filter {
 
         try {
             SignedJWT signedJWT = SignedJWT.parse(token);
-            JWSVerifier verifier = new MACVerifier(secret);
+            JWSVerifier verifier = getOrCreateVerifier(secret);
 
             if (!signedJWT.verify(verifier)) {
                 return FilterResult.stop(401, "Invalid JWT signature");

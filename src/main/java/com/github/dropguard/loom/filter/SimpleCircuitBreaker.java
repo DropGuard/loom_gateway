@@ -24,9 +24,9 @@ public class SimpleCircuitBreaker {
     private final long failureThreshold;
     private final long resetTimeoutMs;
 
-    private CircuitState state = CircuitState.CLOSED;
-    private int consecutiveFailures = 0;
-    private long lastFailureTime = 0;
+    private volatile CircuitState state = CircuitState.CLOSED;
+    private volatile int consecutiveFailures = 0;
+    private volatile long lastFailureTime = 0;
 
     public SimpleCircuitBreaker(CircuitBreakerConfig config) {
         this.config = config;
@@ -34,7 +34,15 @@ public class SimpleCircuitBreaker {
         this.resetTimeoutMs = config.resetTimeoutMs();
     }
 
-    public synchronized boolean allowRequest() {
+    public boolean allowRequest() {
+        // Fast-path: completely lock-free when breaker is CLOSED
+        if (state == CircuitState.CLOSED) {
+            return true;
+        }
+        return synchronizedAllowRequest();
+    }
+
+    private synchronized boolean synchronizedAllowRequest() {
         long now = System.currentTimeMillis();
         return switch (state) {
             case CLOSED -> true;
@@ -52,11 +60,21 @@ public class SimpleCircuitBreaker {
         };
     }
 
-    public synchronized void recordSuccess() {
+    public void recordSuccess() {
+        // Fast-path: completely lock-free in steady-state CLOSED
+        if (state == CircuitState.CLOSED && consecutiveFailures == 0) {
+            return;
+        }
+        synchronizedRecordSuccess();
+    }
+
+    private synchronized void synchronizedRecordSuccess() {
         if (state == CircuitState.HALF_OPEN) {
             state = CircuitState.CLOSED;
             consecutiveFailures = 0;
             LOG.debug("Circuit breaker transitioning to CLOSED");
+        } else if (state == CircuitState.CLOSED) {
+            consecutiveFailures = 0;
         }
     }
 

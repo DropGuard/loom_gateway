@@ -46,19 +46,21 @@ public class HttpProxyHandler {
         this.httpClient =
                 vertx.createHttpClient(
                         new HttpClientOptions()
+                                .setMaxPoolSize(500)
+                                .setKeepAlive(true)
                                 .setConnectTimeout(timeoutMs)
                                 .setIdleTimeout(timeoutMs));
         this.metrics = metrics;
         this.circuitBreakerFilter = circuitBreakerFilter;
         this.defaultTimeoutMs = timeoutMs;
-        LOG.infof("HTTP client initialized with timeout: %dms", timeoutMs);
+        LOG.infof("HTTP client initialized with timeout: %dms (maxPoolSize: 500)", timeoutMs);
     }
 
     /** Proxy the HTTP request to the upstream service. */
     public void proxy(RoutingContext context, FilterContext filterContext) {
         io.vertx.core.http.HttpServerRequest incomingReq = context.request();
         HttpMethod method = HttpMethod.valueOf(incomingReq.method().name());
-        Instant start = Instant.now();
+        long startNanos = System.nanoTime();
 
         String effectiveUpstream = filterContext.effectiveUpstream();
         if (effectiveUpstream == null || effectiveUpstream.isBlank()) {
@@ -81,7 +83,7 @@ public class HttpProxyHandler {
         LOG.debugf("Forwarding to: %s:%d%s", host, port, uri);
 
         try {
-            Instant upstreamStart = Instant.now();
+            long upstreamStartNanos = System.nanoTime();
             // Per-route timeout (mirrors SCG's Timeout filter). Falls back to the
             // global gateway.timeout when the route has no explicit timeout.
             TimeoutConfig routeTimeout = filterContext.filters().timeout();
@@ -105,11 +107,11 @@ public class HttpProxyHandler {
             backendReq
                     .send(
                             io.vertx.mutiny.core.buffer.Buffer.newInstance(
-                                    body != null ? body : io.vertx.core.buffer.Buffer.buffer()))
+                                     body != null ? body : io.vertx.core.buffer.Buffer.buffer()))
                     .chain(
                             backendRes -> {
                                 metrics.recordUpstreamLatency(
-                                        Duration.between(upstreamStart, Instant.now()));
+                                        System.nanoTime() - upstreamStartNanos);
 
                                 ProxyHeaders.selectClientHeaders(backendRes.headers().entries())
                                         .forEach((k, v) -> clientResp.headers().add(k, v));
@@ -121,8 +123,11 @@ public class HttpProxyHandler {
                                         .headers()
                                         .add(
                                                 "X-Request-Id",
-                                                java.util.UUID.randomUUID().toString());
-                                long processMs = Duration.between(start, Instant.now()).toMillis();
+                                                Long.toHexString(
+                                                        java.util.concurrent.ThreadLocalRandom
+                                                                .current()
+                                                                .nextLong()));
+                                long processMs = (System.nanoTime() - startNanos) / 1_000_000L;
                                 clientResp.headers().add("X-Process-Time", processMs + "ms");
                                 clientResp.setStatusCode(backendRes.statusCode());
                                 LOG.debugf(

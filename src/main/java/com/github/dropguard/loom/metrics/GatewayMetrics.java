@@ -86,7 +86,13 @@ public class GatewayMetrics {
     }
 
     public void recordRequest(String route, int statusCode, Duration duration) {
-        requestDuration.record(duration);
+        if (duration != null) {
+            recordRequest(route, statusCode, duration.toNanos());
+        }
+    }
+
+    public void recordRequest(String route, int statusCode, long durationNanos) {
+        requestDuration.record(durationNanos, java.util.concurrent.TimeUnit.NANOSECONDS);
 
         String key = route + ":" + statusCode;
         statusCounters
@@ -102,7 +108,13 @@ public class GatewayMetrics {
     }
 
     public void recordUpstreamLatency(Duration latency) {
-        upstreamLatency.record(latency);
+        if (latency != null) {
+            recordUpstreamLatency(latency.toNanos());
+        }
+    }
+
+    public void recordUpstreamLatency(long latencyNanos) {
+        upstreamLatency.record(latencyNanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     public void recordCacheHit() {

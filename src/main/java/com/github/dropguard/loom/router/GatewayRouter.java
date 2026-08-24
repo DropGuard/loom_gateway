@@ -138,7 +138,7 @@ public class GatewayRouter {
         }
 
         metrics.incrementActiveConnections();
-        Instant start = Instant.now();
+        long startNanos = System.nanoTime();
         String routeId = "unknown";
         int statusCode = 200;
 
@@ -213,8 +213,7 @@ public class GatewayRouter {
                 context.response().setStatusCode(500).end("Internal Server Error");
             }
         } finally {
-            Duration duration = Duration.between(start, Instant.now());
-            metrics.recordRequest(routeId, statusCode, duration);
+            metrics.recordRequest(routeId, statusCode, System.nanoTime() - startNanos);
             metrics.decrementActiveConnections();
         }
     }

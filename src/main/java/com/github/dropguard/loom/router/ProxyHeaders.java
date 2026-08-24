@@ -14,8 +14,8 @@ import java.util.Map;
  */
 final class ProxyHeaders {
 
-    static final List<String> HOP_BY_HOP =
-            List.of(
+    static final java.util.Set<String> HOP_BY_HOP =
+            java.util.Set.of(
                     "connection",
                     "keep-alive",
                     "proxy-authenticate",
@@ -29,7 +29,7 @@ final class ProxyHeaders {
     private ProxyHeaders() {}
 
     static boolean isHopByHop(String name) {
-        return HOP_BY_HOP.contains(name.toLowerCase());
+        return name != null && HOP_BY_HOP.contains(name.toLowerCase());
     }
 
     static Map<String, String> buildForwardHeaders(
