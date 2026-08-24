@@ -18,6 +18,8 @@ def run(cmd, cwd=None):
 def bench(profile):
     """Run a benchmark profile. docker compose --abort-on-container-exit may return
     non-zero even on success, so we verify by checking the JSON output file instead."""
+    result_file = RESULTS_DIR / f"{profile}.json"
+    result_file.unlink(missing_ok=True)
     subprocess.run(
         f"docker compose --profile {profile} up --build --abort-on-container-exit",
         shell=True, cwd=BENCHMARK_DIR,
@@ -33,6 +35,9 @@ def bench(profile):
     print(f"Result: {result_file}")
 
 def main():
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    RESULTS_DIR.chmod(0o777)
+
     print("=== Installing Loom Gateway library (java-gateway) to local repo ===")
     # gateway-loom consumes java-gateway as a Maven dependency, so the library
     # must be installed before the benchmark app can resolve it.

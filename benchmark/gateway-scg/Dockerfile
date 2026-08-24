@@ -18,5 +18,5 @@ COPY --from=build /workspace/target/*.jar app.jar
 RUN chown -R gateway:gateway /app
 USER gateway
 EXPOSE 8080
-ENV JAVA_OPTS="-Xms384m -Xmx384m -XX:+AlwaysPreTouch"
+ENV JAVA_OPTS="-Xms256m -Xmx256m -XX:+AlwaysPreTouch -XX:+UseG1GC"
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

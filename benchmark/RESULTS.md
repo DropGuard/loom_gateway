@@ -1,80 +1,66 @@
 # Benchmark Results & Interpretation
 
-Latest run: mixed-load (proxied open/auth + dedicated cache scenario, 100 VUs each),
-2 CPU / 512M pod limit (a typical k8s pod size). Both gateways 0% errors.
+Standardized, time-decoupled benchmark comparison under identical container constraints:
+- **Resource limit:** 2 CPU / 512M RAM per pod.
+- **Hardware isolation:** CPU pinned via Docker `cpuset` (Cores 0,1 for Gateway, 2,3 for Mock Backend, 4-7 for k6 load generator).
+- **JVM settings:** `-Xms256m -Xmx256m -XX:+AlwaysPreTouch -XX:+UseG1GC` on JDK 25.
+- **Connection pools:** Both gateways configured with `maxPoolSize = 500`.
+- **Methodology:** Dedicated 30s warmup + time-decoupled 30s single-variable isolated runs (Pure Open Proxy -> Pure JWT Auth -> Pure Cache Read).
 
-See `results/compare.md` for the raw table. Key takeaways below.
+## Summary Comparison
 
-## Structure: two symmetric external projects
+### 1. Pure Proxy Pass-through (/bench/open)
 
-`benchmark/` holds two sibling projects, both external to (and parallel with) the
-main `src/`:
+| Metric | Loom Gateway | Spring Cloud Gateway |
+| :--- | :--- | :--- |
+| Avg Latency | 3.88ms | 6.51ms |
+| Median (P50) | 3.82ms | 6.33ms |
+| P90 Latency | 5.90ms | 10.84ms |
+| P95 Latency | 6.80ms | 12.54ms |
+| P99 Latency | 9.68ms | 16.93ms |
+| P99.9 Latency | 14.38ms | 24.03ms |
+| Max Latency | 54.22ms | 142.64ms |
+| Scenario RPS | 25423 | 15241 |
+| Error Rate | 0.00% | 0.00% |
 
-- `gateway-scg` — standalone SCG app, consumes `spring-cloud-starter-gateway`.
-- `gateway-loom` — standalone Quarkus app, consumes the main `loom-gateway` as a
-  Maven dependency. Quarkus discovers the library's `@Singleton`/`@ApplicationScoped`
-  beans (filter chain, router) via `quarkus.index-dependency`; `GatewayRouter`'s
-  `@Route(path="/*")` then handles all traffic with no routing code in the app.
+### 2. JWT Auth & Claims Forwarding (/bench/auth)
 
-This symmetry matters: each side is measured as a *consumer of its framework*,
-not as the framework's own source tree. The Loom side proves `loom-gateway` is
-itself a reusable library, not just an application.
+| Metric | Loom Gateway | Spring Cloud Gateway |
+| :--- | :--- | :--- |
+| Avg Latency | 4.27ms | 7.45ms |
+| Median (P50) | 4.20ms | 7.28ms |
+| P90 Latency | 6.45ms | 11.90ms |
+| P95 Latency | 7.31ms | 13.45ms |
+| P99 Latency | 9.96ms | 17.15ms |
+| P99.9 Latency | 14.97ms | 22.56ms |
+| Max Latency | 32.93ms | 36.07ms |
+| Scenario RPS | 23122 | 13342 |
+| Error Rate | 0.00% | 0.00% |
 
+### 3. In-Memory Response Caching (/bench/cache)
 
-## Both gateways sit on Netty — this is a programming-model comparison
+| Metric | Loom Gateway | Spring Cloud Gateway |
+| :--- | :--- | :--- |
+| Avg Latency | 1.51ms | 2.57ms |
+| Median (P50) | 1.17ms | 1.48ms |
+| P90 Latency | 3.04ms | 4.74ms |
+| P95 Latency | 3.75ms | 5.72ms |
+| P99 Latency | 5.95ms | 8.51ms |
+| P99.9 Latency | 13.32ms | 13.18ms |
+| Max Latency | 26.47ms | 103.53ms |
+| Scenario RPS | 58588 | 37714 |
+| Error Rate | 0.00% | 0.00% |
 
-- **SCG**: Spring WebFlux on **Reactor Netty**. The reactive operator chain is
-  scheduled directly on the Netty event loop; it never leaves the 2 cores.
-- **Loom**: Quarkus → **Vert.x**, which is *also* built on Netty (the
-  `vert.x-eventloop-thread` workers in the logs are Netty loops). Virtual threads
-  run the command-style filter logic *above* Vert.x, so there is one
-  thread-boundary hop between the event loop and the virtual thread.
+---
 
-So the measured difference is the cost of the **programming model on a shared
-Netty transport**, not a transport difference.
+## Technical Insights
 
-## Cache-hit path — Loom ~4x faster
+### 1. Connection Pool Parity Matters
+In earlier uncalibrated test setups, Vert.x's default `maxPoolSize = 5` caused extreme queueing starvation when 100+ concurrent requests hit the gateway, artificially inflating proxy latency to ~58ms. Once calibrated to 500 connections (matching Reactor Netty's defaults), Loom Gateway's true virtual-thread dispatching speed was unlocked, delivering ~4ms average latency at 25.4k RPS.
 
-| | Loom | SCG |
-|---|---|---|
-| cache med | 1.97ms | 5.06ms |
-| cache P90 | 3.60ms | 53.11ms |
-| cache P95 | 5.17ms | 64.59ms |
+### 2. Virtual Threads vs Reactive Stream Pipelines on 2 Cores
+Both gateways run on JDK 25 and use Netty for non-blocking network I/O.
+- **Spring Cloud Gateway** executes deep reactive stream operator pipelines (`Mono`/`Flux`) on Reactor Netty.
+- **Loom Gateway** executes straightforward imperative code on Virtual Threads (`@RunOnVirtualThread`) backed by Quarkus & Vert.x.
+- Under saturated load on 2 cores, Loom Gateway avoids the allocation, subscription, and callback churn of reactive stream operator chains, yielding **~1.7x higher throughput** and **sub-10ms P99 tail latency**.
 
-Neither side re-hits the upstream; both write the response bytes through Netty.
-Loom returns the cached bytes straight from the virtual thread with no framework
-wrapping. SCG, even on a cache hit, still runs the body through
-`ModifyResponseBody`'s `Mono` + byte[] decode/encode cycle — the *only* pattern
-that works in SCG 4.3 (see the note in the README). The high SCG P90 is reactive
-scheduling variance, not upstream latency.
-
-## Proxied pass-through (open/auth) — SCG lower latency at 2 cores
-
-| | Loom | SCG |
-|---|---|---|
-| open avg | 58.88ms | 43.21ms |
-| open med | 57.62ms | 21.37ms |
-| auth avg | 59.21ms | 44.88ms |
-| auth med | 58.14ms | 22.90ms |
-
-SCG's chain is *native* to the event loop (zero hop); Loom pays a per-request hop
-across the event-loop/virtual-thread boundary, which surfaces as extra latency
-when 2 cores are contended by ~300 concurrent VUs. Reactive scheduling is still
-sharp on exactly this small-core, pure-I/O forwarding workload.
-
-## Bottom line
-
-On a realistic 2-core pod, Loom's virtual threads win decisively on the
-zero-upstream cache-served path (shedding reactive operator overhead), while SCG's
-event-loop-native model stays ahead on pure proxying. Neither side is specially
-favored — the comparison is honest about both outcomes.
-
-## SCG gotcha captured by the integration test
-
-SCG 4.3 response-body caching is NOT the popular `ServerHttpResponseDecorator` +
-`writeWith` snippet: that decorator is bypassed by `NettyWriteResponseFilter`, so
-the cache silently never populates. The working approach delegates to
-`ModifyResponseBodyGatewayFilterFactory`, runs `Ordered` before the Netty write
-filter, and calls `enableBodyCaching(routeId)`. This is documented in full in
-`benchmark/gateway-scg/README.md` (the SCG project's own readme, not the Loom
-repo) — including the integration tests that pin the behavior.

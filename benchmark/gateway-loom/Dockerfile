@@ -8,4 +8,5 @@ COPY target/quarkus-app/app/ /app/app/
 COPY target/quarkus-app/quarkus/ /app/quarkus/
 COPY target/quarkus-app/quarkus-run.jar /app/quarkus-run.jar
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "/app/quarkus-run.jar"]
+ENV JAVA_OPTS="-Xms256m -Xmx256m -XX:+AlwaysPreTouch -XX:+UseG1GC"
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/quarkus-run.jar"]
