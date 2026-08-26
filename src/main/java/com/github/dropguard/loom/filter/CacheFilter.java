@@ -20,19 +20,28 @@ import org.jboss.logging.Logger;
 public class CacheFilter implements Filter {
 
     private static final Logger LOG = Logger.getLogger(CacheFilter.class);
-    private static final long MAX_CACHE_BODY_SIZE = 1024 * 1024; // 1MB
+    // Reference the shared interceptor limit so the proxy layer and the cache
+    // layer agree on how large a body may be buffered.
+    private static final long MAX_CACHE_BODY_SIZE = FilterContext.MAX_INTERCEPTED_BODY_BYTES;
     private final LocalCacheManager cache;
     private final GatewayMetrics metrics;
+    private final CircuitBreakerRegistry circuitBreakerRegistry;
 
     @Inject
-    public CacheFilter(Instance<LocalCacheManager> cacheInstance, GatewayMetrics metrics) {
+    public CacheFilter(
+            Instance<LocalCacheManager> cacheInstance,
+            GatewayMetrics metrics,
+            Instance<CircuitBreakerRegistry> circuitBreakerRegistry) {
         this.cache = cacheInstance.isResolvable() ? cacheInstance.get() : null;
         this.metrics = metrics;
+        this.circuitBreakerRegistry =
+                circuitBreakerRegistry.isResolvable() ? circuitBreakerRegistry.get() : null;
     }
 
     public CacheFilter() {
         this.cache = null;
         this.metrics = null;
+        this.circuitBreakerRegistry = null;
     }
 
     @Override
@@ -58,6 +67,19 @@ public class CacheFilter implements Filter {
             LOG.debugf("Cache hit for '%s'", cacheKey);
             if (metrics != null) metrics.recordCacheHit();
             writeCachedResponse(context, entry);
+            // A cache hit short-circuits the proxy, so the downstream handler can
+            // never report the outcome. If the circuit breaker is in HALF_OPEN
+            // waiting for a probe success, this 200-from-cache IS a success:
+            // report it, otherwise the breaker stays stuck HALF_OPEN forever on
+            // hot cached routes.
+            if (context.route() != null
+                    && context.route().filters().circuitBreaker() != null
+                    && circuitBreakerRegistry != null) {
+                SimpleCircuitBreaker breaker = circuitBreakerRegistry.get(context.route().id());
+                if (breaker != null) {
+                    breaker.recordSuccess();
+                }
+            }
             return;
         }
 
@@ -68,6 +90,12 @@ public class CacheFilter implements Filter {
         // Register response interceptor to cache the upstream response
         context.onResponse(
                 data -> {
+                    if (data.statusCode() < 200 || data.statusCode() >= 300) {
+                        // Never cache error responses: a transient upstream 5xx
+                        // must not be served to subsequent callers for the TTL.
+                        LOG.debugf("Not caching non-2xx response (status %d)", data.statusCode());
+                        return;
+                    }
                     if (data.body().length > MAX_CACHE_BODY_SIZE) {
                         LOG.debugf(
                                 "Response too large to cache (%d bytes > %d)",
@@ -91,11 +119,16 @@ public class CacheFilter implements Filter {
         if (entry.contentType() != null) {
             context.response().headers().set("content-type", entry.contentType());
         }
-        // DEFECT #12: signal to clients/CDNs that the cached representation
-        // varies by the request's authentication, so they do not collapse
-        // authenticated and anonymous responses either.
-        if (context.filters().auth() != null) {
-            context.response().headers().set("Vary", "Authorization");
+        // Signal to clients/CDNs that the cached representation varies by the
+        // request's authentication, so they do not collapse authenticated and
+        // anonymous responses either. The Vary header must name the header the
+        // gateway actually keys on: Authorization for JWT routes, X-API-Key for
+        // api-key routes.
+        String authType = context.filters().auth() != null ? context.filters().auth().type() : null;
+        if (authType != null) {
+            String varyHeader =
+                    "api-key".equalsIgnoreCase(authType) ? "X-API-Key" : "Authorization";
+            context.response().headers().set("Vary", varyHeader);
         }
         context.response().end(io.vertx.core.buffer.Buffer.buffer(entry.body()));
         LOG.debugf("Served cached response (%d bytes)", entry.body().length);
@@ -104,17 +137,25 @@ public class CacheFilter implements Filter {
     private String buildKey(FilterContext context) {
         String method = context.request().method().name();
         String uri = context.request().uri();
+        // Gray upstreams can serve different representations; a cached primary
+        // response must never be served to a request that was canary-routed (and
+        // vice versa). Include the effective upstream in the key so each
+        // upstream's responses are partitioned.
+        String effectiveUpstream = context.effectiveUpstream();
+        String upstreamTag = effectiveUpstream != null ? "|up=" + effectiveUpstream : "";
         String identity = getUserIdentity(context);
         if (identity != null) {
-            return method + ":" + uri + ":" + identity;
+            return method + ":" + uri + upstreamTag + ":" + identity;
         }
-        // DEFECT #12: a route that *can* authenticate must not let an
-        // unauthenticated response be served to an authenticated caller (and
-        // vice versa). Only routes with NO auth config at all are safe to share
-        // under a bare method:uri key. Otherwise tag the key as anonymous so it
-        // is partitioned away from authenticated entries.
+        // A route that *can* authenticate must not let an unauthenticated
+        // response be served to an authenticated caller (and vice versa). Only
+        // routes with NO auth config at all are safe to share under a bare
+        // method:uri key. Otherwise tag the key as anonymous so it is partitioned
+        // away from authenticated entries.
         boolean routeCanAuthenticate = context.filters().auth() != null;
-        return routeCanAuthenticate ? method + ":" + uri + ":anon" : method + ":" + uri;
+        return routeCanAuthenticate
+                ? method + ":" + uri + upstreamTag + ":anon"
+                : method + ":" + uri + upstreamTag;
     }
 
     private String getUserIdentity(FilterContext context) {

@@ -53,7 +53,24 @@ class CacheFilterTest {
                                     };
                                 });
 
-        filter = new CacheFilter(instance, metrics);
+        // Instance wrapper for CircuitBreakerRegistry (nullable in this test's
+        // cache-hit path; the registry is only touched on cache hits with a
+        // breaker-configured route).
+        Instance<CircuitBreakerRegistry> breakerInstance =
+                (Instance<CircuitBreakerRegistry>)
+                        java.lang.reflect.Proxy.newProxyInstance(
+                                Instance.class.getClassLoader(),
+                                new Class<?>[] {Instance.class},
+                                (proxy, method, args) -> {
+                                    return switch (method.getName()) {
+                                        case "isResolvable" -> false;
+                                        case "isUnsatisfied" -> false;
+                                        case "isAmbiguous" -> false;
+                                        default -> null;
+                                    };
+                                });
+
+        filter = new CacheFilter(instance, metrics, breakerInstance);
         request = new MockRequest();
         response = new MockResponse();
         context = new FilterContext(request, response);
@@ -77,7 +94,12 @@ class CacheFilterTest {
     @Test
     void testCacheHitReturnsCachedResponse() throws Exception {
         // Pre-populate cache
-        cache.put("GET:/api/data", 200, "application/json", "{\"cached\":true}".getBytes(), 60);
+        cache.put(
+                "GET:/api/data|up=localhost:8080",
+                200,
+                "application/json",
+                "{\"cached\":true}".getBytes(),
+                60);
 
         context.route(routeWithCache(new CacheConfig(true, 60)));
 
@@ -120,7 +142,7 @@ class CacheFilterTest {
     void testCacheKeyWithJwtIdentity() throws Exception {
         // Pre-populate cache with user-specific key
         cache.put(
-                "GET:/api/data:user-1",
+                "GET:/api/data|up=localhost:8080:user-1",
                 200,
                 "application/json",
                 "{\"user\":\"user-1\"}".getBytes(),
@@ -171,7 +193,11 @@ class CacheFilterTest {
     @Test
     void anonymousCallerHitsAnonPartition_onAuthRoute() throws Exception {
         cache.put(
-                "GET:/api/data:anon", 200, "application/json", "{\"public\":true}".getBytes(), 60);
+                "GET:/api/data|up=localhost:8080:anon",
+                200,
+                "application/json",
+                "{\"public\":true}".getBytes(),
+                60);
 
         // No claims, route supports auth -> key should be :anon -> cache HIT.
         context.route(routeWithAuthCache(new CacheConfig(true, 60), "jwt"));
@@ -185,7 +211,12 @@ class CacheFilterTest {
     @Test
     void noAuthRouteStillSharesPlainKey() throws Exception {
         // A route with NO auth config: anonymous responses are safe to share.
-        cache.put("GET:/api/data", 200, "application/json", "{\"shared\":true}".getBytes(), 60);
+        cache.put(
+                "GET:/api/data|up=localhost:8080",
+                200,
+                "application/json",
+                "{\"shared\":true}".getBytes(),
+                60);
 
         context.route(routeWithCache(new CacheConfig(true, 60))); // auth == null
 
