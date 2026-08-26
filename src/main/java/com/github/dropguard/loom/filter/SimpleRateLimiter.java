@@ -41,16 +41,14 @@ public class SimpleRateLimiter {
     }
 
     /**
-     * Drop buckets whose window has fully elapsed and have no in-flight count, so the map does not
-     * grow without bound under many distinct clients.
+     * Drop buckets whose window has fully elapsed. Once a bucket's window is over, the next
+     * tryAcquire recreates it with a fresh counter, so evicting it loses no state and keeps the map
+     * bounded under many distinct clients. The old guard also required count == 0, which let stale
+     * active buckets accumulate forever under steady load.
      */
     void evictExpired() {
         long now = System.currentTimeMillis();
-        buckets.entrySet()
-                .removeIf(
-                        e ->
-                                now - e.getValue().windowStart() >= windowMs
-                                        && e.getValue().count() == 0);
+        buckets.entrySet().removeIf(e -> now - e.getValue().windowStart() >= windowMs);
     }
 
     public int getLimit() {
@@ -72,10 +70,6 @@ public class SimpleRateLimiter {
                 windowStart = now;
             }
             return counter.incrementAndGet() <= limit;
-        }
-
-        int count() {
-            return counter.get();
         }
 
         long windowStart() {

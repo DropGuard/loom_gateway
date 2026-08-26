@@ -15,6 +15,9 @@ import org.jboss.logging.Logger;
 public class RateLimitFilter implements Filter {
 
     private static final Logger LOG = Logger.getLogger(RateLimitFilter.class);
+    // Bounded by the number of routes (keyed by routeId). Per-client buckets
+    // live inside each SimpleRateLimiter and are lazily evicted once their
+    // window elapses, so the per-route map cannot grow without bound.
     private final Map<String, SimpleRateLimiter> limiters = new ConcurrentHashMap<>();
     private final GatewayMetrics metrics;
 
@@ -36,14 +39,14 @@ public class RateLimitFilter implements Filter {
         }
 
         String routeId = context.route().id();
-        // Per-client bucket (DEFECT #8): each client gets its own quota so one
-        // client cannot exhaust the whole route. clientId is null for routes
-        // with no auth, which falls back to the route-wide bucket (key == routeId,
-        // unchanged behavior for anonymous traffic).
+        // Per-client buckets (DEFECT #8): one limiter per route (a bounded map),
+        // with one bucket per client identity inside it, so one client cannot
+        // exhaust the whole route. clientId is null for routes with no auth,
+        // which falls back to the route-wide bucket (key == routeId).
         String clientId = resolveClientId(context);
-        String bucketKey = clientId != null ? routeId + ":" + clientId : routeId;
+        String bucketKey = clientId != null ? clientId : routeId;
         SimpleRateLimiter limiter =
-                limiters.computeIfAbsent(bucketKey, k -> new SimpleRateLimiter(config));
+                limiters.computeIfAbsent(routeId, k -> new SimpleRateLimiter(config));
 
         if (limiter.tryAcquire(bucketKey)) {
             next.run();
