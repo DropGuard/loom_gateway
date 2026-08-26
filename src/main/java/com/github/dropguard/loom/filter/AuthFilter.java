@@ -67,7 +67,12 @@ public class AuthFilter implements Filter {
         HttpServerRequest request = context.request();
         String authHeader = request.getHeader("Authorization");
 
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+        // DEFECT: RFC 6750 defines the scheme as case-insensitive ("bearer"/"Bearer"/
+        // "BEARER" are all valid). startsWith("Bearer ") rejected mixed-case schemes
+        // sent by standards-compliant clients.
+        if (authHeader == null
+                || authHeader.length() < 7
+                || !authHeader.regionMatches(true, 0, "Bearer ", 0, 7)) {
             return FilterResult.stop(401, "Missing or invalid Authorization header");
         }
 
