@@ -13,42 +13,42 @@ Standardized, time-decoupled benchmark comparison under identical container cons
 
 | Metric | Loom Gateway | Spring Cloud Gateway |
 | :--- | :--- | :--- |
-| Avg Latency | 3.88ms | 6.51ms |
-| Median (P50) | 3.82ms | 6.33ms |
-| P90 Latency | 5.90ms | 10.84ms |
-| P95 Latency | 6.80ms | 12.54ms |
-| P99 Latency | 9.68ms | 16.93ms |
-| P99.9 Latency | 14.38ms | 24.03ms |
-| Max Latency | 54.22ms | 142.64ms |
-| Scenario RPS | 25423 | 15241 |
+| Avg Latency | 4.18ms | 7.16ms |
+| Median (P50) | 4.09ms | 6.95ms |
+| P90 Latency | 6.37ms | 11.73ms |
+| P95 Latency | 7.30ms | 13.32ms |
+| P99 Latency | 10.16ms | 17.53ms |
+| P99.9 Latency | 15.40ms | 23.94ms |
+| Max Latency | 44.34ms | 44.65ms |
+| Scenario RPS | 23594 | 13860 |
 | Error Rate | 0.00% | 0.00% |
 
 ### 2. JWT Auth & Claims Forwarding (/bench/auth)
 
 | Metric | Loom Gateway | Spring Cloud Gateway |
 | :--- | :--- | :--- |
-| Avg Latency | 4.27ms | 7.45ms |
-| Median (P50) | 4.20ms | 7.28ms |
-| P90 Latency | 6.45ms | 11.90ms |
-| P95 Latency | 7.31ms | 13.45ms |
-| P99 Latency | 9.96ms | 17.15ms |
-| P99.9 Latency | 14.97ms | 22.56ms |
-| Max Latency | 32.93ms | 36.07ms |
-| Scenario RPS | 23122 | 13342 |
+| Avg Latency | 4.58ms | 7.99ms |
+| Median (P50) | 4.48ms | 7.79ms |
+| P90 Latency | 6.89ms | 12.57ms |
+| P95 Latency | 7.81ms | 14.17ms |
+| P99 Latency | 10.61ms | 18.11ms |
+| P99.9 Latency | 15.96ms | 24.12ms |
+| Max Latency | 27.17ms | 93.25ms |
+| Scenario RPS | 21558 | 12431 |
 | Error Rate | 0.00% | 0.00% |
 
 ### 3. In-Memory Response Caching (/bench/cache)
 
 | Metric | Loom Gateway | Spring Cloud Gateway |
 | :--- | :--- | :--- |
-| Avg Latency | 1.51ms | 2.57ms |
-| Median (P50) | 1.17ms | 1.48ms |
-| P90 Latency | 3.04ms | 4.74ms |
-| P95 Latency | 3.75ms | 5.72ms |
-| P99 Latency | 5.95ms | 8.51ms |
-| P99.9 Latency | 13.32ms | 13.18ms |
-| Max Latency | 26.47ms | 103.53ms |
-| Scenario RPS | 58588 | 37714 |
+| Avg Latency | 1.74ms | 2.67ms |
+| Median (P50) | 1.40ms | 1.52ms |
+| P90 Latency | 3.35ms | 4.61ms |
+| P95 Latency | 4.22ms | 6.03ms |
+| P99 Latency | 6.70ms | 8.73ms |
+| P99.9 Latency | 12.94ms | 13.76ms |
+| Max Latency | 33.34ms | 34.72ms |
+| Scenario RPS | 52273 | 36284 |
 | Error Rate | 0.00% | 0.00% |
 
 ---

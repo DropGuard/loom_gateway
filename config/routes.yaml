@@ -7,7 +7,7 @@ routes:
       auth:
         type: jwt
         required: true
-        secret: "${JWT_SECRET:gateway-jwt-secret-CHANGE-ME-in-prod-32+}"
+        secret: "${JWT_SECRET:}"
       rateLimit:
         limit: 1000
         windowMs: 1000
@@ -48,9 +48,11 @@ routes:
       auth:
         type: api-key
         required: true
+        # Keys are injected from the environment (${API_KEY_1} / ${API_KEY_2} at
+        # load time); no production key is ever committed to the repository.
         apiKeys:
-          - "pk-test-key-123"
-          - "pk-production-key-456"
+          - "${API_KEY_1:}"
+          - "${API_KEY_2:}"
       rateLimit:
         limit: 100
         windowMs: 1000
@@ -65,7 +67,7 @@ routes:
       auth:
         type: jwt
         required: true
-        secret: "${JWT_SECRET:gateway-jwt-secret-CHANGE-ME-in-prod-32+}"
+        secret: "${JWT_SECRET:}"
       circuitBreaker:
         failureThreshold: 5
         resetTimeoutMs: 30000

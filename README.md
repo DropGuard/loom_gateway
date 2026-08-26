@@ -8,7 +8,7 @@ A lightweight, high-performance API gateway built on **Quarkus + Vert.x + Java 2
 - **Response Streaming**: Vert.x `pipeTo()` streams HTTP responses directly to clients without buffering; responses ≤1MB are cached via buffer-then-send for API acceleration
 - **WebSocket Proxy**: Full-duplex WebSocket proxying with subprotocol negotiation, circuit breaker integration, and connection lifecycle management
 - **Filter Chain**: Authentication (JWT/HS256), rate limiting, circuit breaking, canary (gray) release, and response caching — executed in priority order
-- **Hot Reload**: WatchService monitors `routes.yaml` for changes — no restart required
+- **Hot Reload**: route config is re-read on file change (mtime polling, which also survives Kubernetes ConfigMap symlink rotation) — no restart required
 - **Prometheus Metrics**: Exposes `/q/metrics` and `/q/health/live`
 - **K8s-Native**: Resolves backends via K8s DNS; config mounted via ConfigMap
 
@@ -22,20 +22,22 @@ Edit `config/routes.yaml`:
 routes:
   - id: api-users
     path: /api/users/**
+    methods: [GET, POST, PUT, DELETE]
     upstream: user-service.default.svc.cluster.local:8080
-    auth:
-      type: jwt
-      required: true
-      secret: "your-jwt-secret"
-    rateLimit:
-      limit: 1000
-      windowMs: 1000
-    circuitBreaker:
-      failureThreshold: 5
-      resetTimeoutMs: 30000
-    cache:
-      enabled: true
-      ttlSeconds: 60
+    filters:
+      auth:
+        type: jwt
+        required: true
+        secret: "your-jwt-secret"
+      rateLimit:
+        limit: 1000
+        windowMs: 1000
+      circuitBreaker:
+        failureThreshold: 5
+        resetTimeoutMs: 30000
+      cache:
+        enabled: true
+        ttlSeconds: 60
 ```
 
 ### 2. Local Development
@@ -54,11 +56,16 @@ java -jar target/quarkus-app/quarkus-run.jar
 
 ### 4. Docker
 
-```bash
 mvn clean package -DskipTests
 docker build -t loom-gateway .
 docker run -p 8080:8080 -v ./config:/config:ro loom-gateway
-```
+
+
+> **密钥注入**：认证密钥通过环境变量在网关加载 `routes.yaml` 时展开
+> (`${JWT_SECRET:}` / `${API_KEY_1:}` / `${API_KEY_2:}`)。未注入时对应路由以
+> 空密钥运行，认证请求返回 401/500。本地开发用 `docker-compose up`(内置
+> `CHANGE_ME_*` 占位值)；**生产环境请用 Kubernetes Secret (`envFrom.secretRef`)
+> 注入真实值，切勿沿用 compose 占位**。`docker-compose.yml` 中的注释同样标明了这一点。
 
 ## Benchmark
 
@@ -73,40 +80,40 @@ Standardized comparison under identical container conditions:
 
 | Metric | Loom Gateway | Spring Cloud Gateway (4.3) | Advantage |
 | :--- | :--- | :--- | :--- |
-| **Avg Latency** | **3.88ms** | 6.51ms | ~1.7x lower latency |
-| **Median (P50)** | **3.82ms** | 6.33ms | ~1.7x lower latency |
-| **P90 Latency** | **5.90ms** | 10.84ms | ~1.8x lower latency |
-| **P95 Latency** | **6.80ms** | 12.54ms | ~1.8x lower latency |
-| **P99 Latency** | **9.68ms** | 16.93ms | **Sub-10ms tail latency** |
-| **P99.9 Latency** | **14.38ms** | 24.03ms | ~1.7x lower latency |
-| **Scenario RPS** | **25,423** | 15,241 | **+67% higher throughput** |
+| **Avg Latency** | **4.18ms** | 7.16ms | ~1.7x lower latency |
+| **Median (P50)** | **4.09ms** | 6.95ms | ~1.7x lower latency |
+| **P90 Latency** | **6.37ms** | 11.73ms | ~1.8x lower latency |
+| **P95 Latency** | **7.30ms** | 13.32ms | ~1.8x lower latency |
+| **P99 Latency** | **10.16ms** | 17.53ms | ~1.7x lower latency |
+| **P99.9 Latency** | **15.40ms** | 23.94ms | ~1.6x lower latency |
+| **Scenario RPS** | **23,594** | 13,860 | **+70% higher throughput** |
 | **Error Rate** | 0.00% | 0.00% | Both 100% reliable |
 
 ### 2. JWT Auth & Claims Forwarding (`/bench/auth`)
 
 | Metric | Loom Gateway | Spring Cloud Gateway (4.3) | Advantage |
 | :--- | :--- | :--- | :--- |
-| **Avg Latency** | **4.27ms** | 7.45ms | ~1.7x lower latency |
-| **Median (P50)** | **4.20ms** | 7.28ms | ~1.7x lower latency |
-| **P90 Latency** | **6.45ms** | 11.90ms | ~1.8x lower latency |
-| **P95 Latency** | **7.31ms** | 13.45ms | ~1.8x lower latency |
-| **P99 Latency** | **9.96ms** | 17.15ms | **Sub-10ms tail latency** |
-| **P99.9 Latency** | **14.97ms** | 22.56ms | ~1.5x lower latency |
-| **Scenario RPS** | **23,122** | 13,342 | **+73% higher throughput** |
+| **Avg Latency** | **4.58ms** | 7.99ms | ~1.7x lower latency |
+| **Median (P50)** | **4.48ms** | 7.79ms | ~1.7x lower latency |
+| **P90 Latency** | **6.89ms** | 12.57ms | ~1.8x lower latency |
+| **P95 Latency** | **7.81ms** | 14.17ms | ~1.8x lower latency |
+| **P99 Latency** | **10.61ms** | 18.11ms | ~1.7x lower latency |
+| **P99.9 Latency** | **15.96ms** | 24.12ms | ~1.5x lower latency |
+| **Scenario RPS** | **21,558** | 12,431 | **+73% higher throughput** |
 | **Error Rate** | 0.00% | 0.00% | Both 100% reliable |
 
 ### 3. In-Memory Response Caching (`/bench/cache`)
 
 | Metric | Loom Gateway | Spring Cloud Gateway (4.3) | Advantage |
 | :--- | :--- | :--- | :--- |
-| **Avg Latency** | **1.51ms** | 2.57ms | ~1.7x lower latency |
-| **Median (P50)** | **1.17ms** | 1.48ms | ~1.26x lower latency |
-| **P90 Latency** | **3.04ms** | 4.74ms | ~1.55x lower latency |
-| **P99 Latency** | **5.95ms** | 8.51ms | ~1.43x lower latency |
-| **Scenario RPS** | **58,588** | 37,714 | **+55% higher throughput** |
+| **Avg Latency** | **1.74ms** | 2.67ms | ~1.5x lower latency |
+| **Median (P50)** | **1.40ms** | 1.52ms | ~1.1x lower latency |
+| **P90 Latency** | **3.35ms** | 4.61ms | ~1.4x lower latency |
+| **P99 Latency** | **6.70ms** | 8.73ms | ~1.3x lower latency |
+| **Scenario RPS** | **52,273** | 36,284 | **+44% higher throughput** |
 | **Error Rate** | 0.00% | 0.00% | Both 100% reliable |
 
-> **Key Takeaway:** Under saturated load on 2 cores, Loom Gateway achieves **~1.7x higher throughput** and **sub-10ms P99 tail latency** across all proxy and auth workloads, demonstrating the efficiency of imperative execution on Virtual Threads over reactive stream (`Mono`/`Flux`) operator pipelines. See [benchmark/RESULTS.md](benchmark/RESULTS.md) for in-depth technical analysis and test design details.
+> **Key Takeaway:** Under saturated load on 2 cores, Loom Gateway achieves **~1.7x higher throughput** and **~1.7x lower latency** across proxy and auth workloads, with cache reads ~1.5x faster end-to-end — demonstrating the efficiency of imperative execution on Virtual Threads over reactive stream (`Mono`/`Flux`) operator pipelines. See [benchmark/RESULTS.md](benchmark/RESULTS.md) for in-depth technical analysis and test design details.
 
 To reproduce:
 

@@ -1,6 +1,8 @@
-# Build artifacts
+# Build artifacts. Note: no "!target/quarkus-app/" un-exclude here — the
+# multi-stage Dockerfile copies the quarkus-app from the builder stage
+# (COPY --from=builder), so any local target/ contents would only bloat the
+# build context with stale artifacts AND break layer caching.
 target/
-!target/quarkus-app/
 
 # Maven cache
 .m2/
