@@ -128,6 +128,21 @@ routes:
         failureThreshold: 10
         resetTimeoutMs: 15000
 
+  # WebSocket circuit-breaker route: upstream is a DEAD port (19998), so every
+  # upgrade fails and the breaker trips. Powers GatewayWebSocketCircuitBreakerTest;
+  # without this route the test silently asserted against 404s instead.
+  - id: ws-fail
+    path: /ws/fail/**
+    methods: [GET]
+    upstream: localhost:19998
+    filters:
+      auth:
+        type: none
+        required: false
+      circuitBreaker:
+        failureThreshold: 3
+        resetTimeoutMs: 30000
+
   # Benchmark routes: the Loom half of the SYMMETRIC comparison. Mirrors the
   # SCG benchmark gateway filter chain so integration tests can assert both
   # sides behave identically. Upstream is the in-test MockBackend.
