@@ -9,15 +9,16 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.jboss.logging.Logger;
 
 /**
- * Owns the lifecycle of per-route circuit breakers. Uses a ConcurrentHashMap with lock-free
- * reads for high-throughput concurrency.
+ * Owns the lifecycle of per-route circuit breakers. Uses a ConcurrentHashMap with lock-free reads
+ * for high-throughput concurrency.
  */
 @Singleton
 public class CircuitBreakerRegistry {
 
     private static final Logger LOG = Logger.getLogger(CircuitBreakerRegistry.class);
 
-    private final ConcurrentHashMap<String, SimpleCircuitBreaker> breakers = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, SimpleCircuitBreaker> breakers =
+            new ConcurrentHashMap<>();
 
     /**
      * Returns the breaker for {@code routeId}, rebuilding it when its bound config has drifted from
@@ -34,7 +35,9 @@ public class CircuitBreakerRegistry {
                 (k, current) -> {
                     if (current == null || !config.equals(current.config())) {
                         if (current != null) {
-                            LOG.infof("Rebuilding circuit breaker for route '%s' (config changed)", routeId);
+                            LOG.infof(
+                                    "Rebuilding circuit breaker for route '%s' (config changed)",
+                                    routeId);
                         }
                         return new SimpleCircuitBreaker(config);
                     }
@@ -52,4 +55,3 @@ public class CircuitBreakerRegistry {
         breakers.remove(routeId);
     }
 }
-

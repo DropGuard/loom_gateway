@@ -65,7 +65,7 @@ public class GatewayMetrics {
 
         this.circuitBreakerCounter =
                 Counter.builder("gateway_circuit_breaker_triggered_total")
-                        .description("Total circuit breaker state transitions to OPEN")
+                        .description("Total requests rejected by an OPEN circuit breaker")
                         .register(registry);
     }
 
