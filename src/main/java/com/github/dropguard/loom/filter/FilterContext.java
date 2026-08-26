@@ -13,8 +13,12 @@ import java.util.function.Consumer;
 /** Context passed to each filter in the chain. */
 public class FilterContext {
 
+    /** Maximum body size (bytes) that a response interceptor may buffer. */
+    public static final long MAX_INTERCEPTED_BODY_BYTES = 1024 * 1024;
+
     /** Captured upstream response data, passed to response interceptors. */
-    public record ResponseData(int statusCode, String contentType, byte[] body) {}
+    public record ResponseData(
+            int statusCode, String contentType, byte[] body, Map<String, String> headers) {}
 
     private final HttpServerRequest request;
     private final HttpServerResponse response;
@@ -22,6 +26,7 @@ public class FilterContext {
     private String grayUpstream;
     private Map<String, Object> claims;
     private Consumer<ResponseData> responseInterceptor;
+    private byte[] requestBody;
     private final Map<String, Object> attributes = new ConcurrentHashMap<>();
 
     public FilterContext(HttpServerRequest request, HttpServerResponse response) {
@@ -76,9 +81,23 @@ public class FilterContext {
     }
 
     /**
+     * Request body captured by the router on the virtual thread before the filter chain runs.
+     * Guarantees POST/PUT payloads are forwarded to upstream regardless of how the framework
+     * buffers (or fails to buffer) the body alongside reactive filters.
+     */
+    public byte[] requestBody() {
+        return requestBody;
+    }
+
+    public void requestBody(byte[] requestBody) {
+        this.requestBody = requestBody;
+    }
+
+    /**
      * Registers a callback to intercept the upstream response before it is sent to the client. When
-     * set, the proxy will buffer the response body and pass it to the interceptor, then send to the
-     * client. When not set, the proxy streams directly via pipeTo without buffering.
+     * set, the proxy will buffer the response body (only when Content-Length is known and ≤ 1MB)
+     * and pass it to the interceptor, then send to the client. When not set, the proxy streams
+     * directly via pipeTo without buffering.
      */
     public void onResponse(Consumer<ResponseData> interceptor) {
         this.responseInterceptor = interceptor;

@@ -12,12 +12,11 @@ import io.opentelemetry.api.trace.Span;
 import io.quarkus.vertx.web.Route;
 import io.quarkus.vertx.web.RouteFilter;
 import io.smallrye.common.annotation.RunOnVirtualThread;
+import io.vertx.core.buffer.Buffer;
 import io.vertx.ext.web.RoutingContext;
 
 import jakarta.enterprise.context.ApplicationScoped;
 
-import java.time.Duration;
-import java.time.Instant;
 import java.util.List;
 
 import org.eclipse.microprofile.config.inject.ConfigProperty;
@@ -162,6 +161,13 @@ public class GatewayRouter {
                             context.request().path(), context.request().method().toString());
             if (matchedRoute == null) {
                 statusCode = 404;
+                // DEFECT: a CORS browser request that hits a missing route must
+                // still receive the CORS headers, or the browser blocks the
+                // (perfectly useful) 404 body. Attach the headers before writing
+                // the error response.
+                if (corsPolicy.isCorsRequest(corsOrigin)) {
+                    corsPolicy.buildHeaders(corsOrigin).forEach(context.response()::putHeader);
+                }
                 context.response().setStatusCode(404).end("No matching route");
                 return;
             }
@@ -177,6 +183,16 @@ public class GatewayRouter {
 
             FilterContext filterContext = new FilterContext(context.request(), context.response());
             filterContext.route(matchedRoute);
+
+            // DEFECT: POST/PUT request bodies were lost because Vert.x only
+            // buffers the body when a body handler is registered; reactive
+            // filter chains never consumed it, so the proxy forwarded an empty
+            // body. This virtual thread blocks on body() and hands the bytes to
+            // the proxy via FilterContext.
+            Buffer body = readRequestBody(context);
+            if (body != null) {
+                filterContext.requestBody(body.getBytes());
+            }
 
             filterChains
                     .http()
@@ -215,6 +231,29 @@ public class GatewayRouter {
         } finally {
             metrics.recordRequest(routeId, statusCode, System.nanoTime() - startNanos);
             metrics.decrementActiveConnections();
+        }
+    }
+
+    /**
+     * Reads the request body by blocking on the core Future. This runs on a virtual thread ({@link
+     * RunOnVirtualThread}), so blocking is cheap and does not pin an event-loop thread. The body is
+     * captured BEFORE the filter chain runs and forwarded to upstream via {@link
+     * FilterContext#requestBody()}; without this, POST/PUT payloads silently arrive empty at the
+     * backend.
+     */
+    private static Buffer readRequestBody(RoutingContext context) {
+        io.vertx.core.http.HttpServerRequest request = context.request();
+        if (request == null) {
+            return null;
+        }
+        try {
+            return request.body()
+                    .toCompletionStage()
+                    .toCompletableFuture()
+                    .get(10, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception e) {
+            LOG.debugf("Failed to read request body: %s", e.getMessage());
+            return null;
         }
     }
 
