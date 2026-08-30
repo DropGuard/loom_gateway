@@ -253,7 +253,7 @@ public class RouteConfigLoader implements RouteConfigProvider {
      * (e.g. {@code /api/v1.0/**}, {@code /api/(v2)/**}) cannot change matching semantics. A
      * trailing {@code /**} keeps its original meaning: the base path itself also matches.
      */
-    private Pattern compilePathPattern(String pathPattern) {
+    Pattern compilePathPattern(String pathPattern) {
         if (pathPattern.endsWith("/**")) {
             String basePath = pathPattern.substring(0, pathPattern.length() - 3);
             return Pattern.compile("^" + Pattern.quote(basePath) + "(?:/.*)?$");
