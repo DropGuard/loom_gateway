@@ -1,54 +1,62 @@
 package com.github.dropguard.loom.filter;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.dropguard.loom.model.RouteConfig.RateLimitConfig;
 
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.jboss.logging.Logger;
 
 /**
- * Fixed-window rate limiter. Supports per-key buckets (e.g. one bucket per client identity) so a
- * single client cannot exhaust the whole route's quota. Expired buckets are lazily evicted to keep
- * the map bounded (DEFECT #20 sibling).
+ * Fixed‑window rate limiter backed by Caffeine.
+ *
+ * <p>Each bucket corresponds to a client identity (or the route‑wide bucket when no identity is
+ * available). Caffeine provides automatic size‑based eviction ({@code maximumSize}) and time‑based
+ * expiration ({@code expireAfterWrite}), so the limiter never grows without bound and stale buckets
+ * are removed without manual housekeeping.
  */
 public class SimpleRateLimiter {
 
     private static final Logger LOG = Logger.getLogger(SimpleRateLimiter.class);
-
-    private static final int EVICT_THRESHOLD = 1024;
-
     private final int limit;
     private final long windowMs;
-    private final ConcurrentHashMap<String, Bucket> buckets = new ConcurrentHashMap<>();
+    private final Cache<String, Bucket> cache;
 
-    public SimpleRateLimiter(RateLimitConfig config) {
-        this.limit = config.limit();
-        this.windowMs = config.windowMs();
+    /**
+     * @param limit max requests per window
+     * @param windowMs window length in milliseconds
+     * @param maxBuckets maximum number of buckets (client identities) the limiter may hold
+     */
+    public SimpleRateLimiter(int limit, long windowMs, int maxBuckets) {
+        this.limit = limit;
+        this.windowMs = windowMs;
+        this.cache =
+                Caffeine.newBuilder()
+                        .maximumSize(maxBuckets)
+                        .expireAfterWrite(windowMs, TimeUnit.MILLISECONDS)
+                        .build();
     }
 
     /**
-     * @param key bucket key; pass a stable constant (e.g. the route id) to get a single route-wide
-     *     bucket, or a per-client id for fairness.
+     * Creates a limiter from a {@link RateLimitConfig} and the globally configured {@code
+     * gateway.rate-limit.maximum-size}.
+     *
+     * @param config route‑specific limit/window
+     * @param maxBuckets maximum number of buckets allowed
+     */
+    public SimpleRateLimiter(RateLimitConfig config, int maxBuckets) {
+        this(config.limit(), config.windowMs(), maxBuckets);
+    }
+
+    /**
+     * @param key bucket key; pass a stable constant (e.g. the route id) to get a single route‑wide
+     *     bucket, or a per‑client id for fairness.
      */
     public boolean tryAcquire(String key) {
-        Bucket bucket = buckets.computeIfAbsent(key, k -> new Bucket());
-        boolean allowed = bucket.tryAcquire(limit, windowMs);
-        if (buckets.size() > EVICT_THRESHOLD) {
-            evictExpired();
-        }
-        return allowed;
-    }
-
-    /**
-     * Drop buckets whose window has fully elapsed. Once a bucket's window is over, the next
-     * tryAcquire recreates it with a fresh counter, so evicting it loses no state and keeps the map
-     * bounded under many distinct clients. The old guard also required count == 0, which let stale
-     * active buckets accumulate forever under steady load.
-     */
-    void evictExpired() {
-        long now = System.currentTimeMillis();
-        buckets.entrySet().removeIf(e -> now - e.getValue().windowStart() >= windowMs);
+        Bucket bucket = cache.get(key, k -> new Bucket());
+        return bucket.tryAcquire(limit, windowMs);
     }
 
     public int getLimit() {
@@ -59,7 +67,7 @@ public class SimpleRateLimiter {
         return windowMs;
     }
 
-    private static final class Bucket {
+    private static class Bucket {
         private final AtomicInteger counter = new AtomicInteger(0);
         private volatile long windowStart = System.currentTimeMillis();
 

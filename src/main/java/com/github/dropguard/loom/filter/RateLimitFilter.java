@@ -9,6 +9,7 @@ import jakarta.inject.Singleton;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 @Singleton
@@ -26,8 +27,13 @@ public class RateLimitFilter implements Filter {
         this.metrics = metrics;
     }
 
+    @Inject
+    @ConfigProperty(name = "gateway.rate-limit.maximum-size", defaultValue = "10000")
+    int rateLimitMaxBuckets;
+
     public RateLimitFilter() {
         this.metrics = null;
+        this.rateLimitMaxBuckets = 10000;
     }
 
     @Override
@@ -46,7 +52,8 @@ public class RateLimitFilter implements Filter {
         String clientId = resolveClientId(context);
         String bucketKey = clientId != null ? clientId : routeId;
         SimpleRateLimiter limiter =
-                limiters.computeIfAbsent(routeId, k -> new SimpleRateLimiter(config));
+                limiters.computeIfAbsent(
+                        routeId, k -> new SimpleRateLimiter(config, rateLimitMaxBuckets));
 
         if (limiter.tryAcquire(bucketKey)) {
             next.run();

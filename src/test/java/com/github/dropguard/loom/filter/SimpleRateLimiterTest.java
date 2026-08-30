@@ -14,7 +14,8 @@ import org.junit.jupiter.api.Test;
 class SimpleRateLimiterTest {
 
     private SimpleRateLimiter limiter(int limit, long windowMs) {
-        return new SimpleRateLimiter(new RateLimitConfig(limit, windowMs));
+        // Use a sufficiently large bucket limit so the tests are not affected by eviction.
+        return new SimpleRateLimiter(new RateLimitConfig(limit, windowMs), 10_000);
     }
 
     @Test
