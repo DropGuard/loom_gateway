@@ -1,6 +1,7 @@
 package com.github.dropguard.loom.filter;
 
 import com.github.dropguard.loom.model.RouteConfig.GrayConfig;
+import com.github.dropguard.loom.util.ApiKeyHasher;
 
 import jakarta.inject.Singleton;
 
@@ -90,7 +91,7 @@ public class GrayReleaseFilter implements Filter {
         }
         String apiKey = context.request().getHeader("X-API-Key");
         if (apiKey != null) {
-            return apiKey;
+            return ApiKeyHasher.hash(apiKey);
         }
         return null;
     }

@@ -4,14 +4,12 @@ import com.github.dropguard.loom.cache.LocalCacheManager;
 import com.github.dropguard.loom.cache.LocalCacheManager.CacheEntry;
 import com.github.dropguard.loom.metrics.GatewayMetrics;
 import com.github.dropguard.loom.model.RouteConfig.CacheConfig;
+import com.github.dropguard.loom.util.ApiKeyHasher;
 
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.util.HexFormat;
 import java.util.Map;
 
 import org.jboss.logging.Logger;
@@ -114,7 +112,7 @@ public class CacheFilter implements Filter {
         next.run();
     }
 
-    private void writeCachedResponse(FilterContext context, CacheEntry entry) {
+    void writeCachedResponse(FilterContext context, CacheEntry entry) {
         context.response().setStatusCode(entry.statusCode());
         if (entry.contentType() != null) {
             context.response().headers().set("content-type", entry.contentType());
@@ -134,9 +132,26 @@ public class CacheFilter implements Filter {
         LOG.debugf("Served cached response (%d bytes)", entry.body().length);
     }
 
+    /**
+     * Returns the request URI with its query string parameters sorted alphabetically. This makes
+     * the cache key independent of the order in which query parameters appear (e.g. {@code
+     * ?a=1&b=2} and {@code ?b=2&a=1} produce the same key), dramatically increasing the cache hit
+     * rate for APIs that accept unordered parameters.
+     */
+    private static String normalizeUri(String uri) {
+        int qIdx = uri.indexOf('?');
+        if (qIdx < 0) return uri;
+        String path = uri.substring(0, qIdx);
+        String query = uri.substring(qIdx + 1);
+        if (query.isEmpty()) return path;
+        String[] params = query.split("&");
+        java.util.Arrays.sort(params);
+        return path + "?" + String.join("&", params);
+    }
+
     private String buildKey(FilterContext context) {
         String method = context.request().method().name();
-        String uri = context.request().uri();
+        String uri = normalizeUri(context.request().uri());
         // Gray upstreams can serve different representations; a cached primary
         // response must never be served to a request that was canary-routed (and
         // vice versa). Include the effective upstream in the key so each
@@ -170,21 +185,10 @@ public class CacheFilter implements Filter {
         if ("api-key".equalsIgnoreCase(authType)) {
             String apiKey = context.request().getHeader("X-API-Key");
             if (apiKey != null && !apiKey.isEmpty()) {
-                return hashApiKey(apiKey);
+                return ApiKeyHasher.hash(apiKey);
             }
         }
 
         return null;
-    }
-
-    private String hashApiKey(String apiKey) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(apiKey.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(hash);
-        } catch (Exception e) {
-            // SHA-256 is always available, this should never happen
-            return apiKey;
-        }
     }
 }
