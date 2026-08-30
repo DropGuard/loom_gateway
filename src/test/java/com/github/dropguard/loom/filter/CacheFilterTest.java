@@ -3,6 +3,7 @@ package com.github.dropguard.loom.filter;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.github.dropguard.loom.cache.LocalCacheManager;
+import com.github.dropguard.loom.cache.LocalCacheManager.CacheEntry;
 import com.github.dropguard.loom.metrics.GatewayMetrics;
 import com.github.dropguard.loom.model.RouteConfig;
 import com.github.dropguard.loom.model.RouteConfig.*;
@@ -13,6 +14,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import jakarta.enterprise.inject.Instance;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
@@ -232,5 +234,69 @@ class CacheFilterTest {
                 null,
                 "localhost:8080",
                 FilterConfig.builder().auth(auth).cache(cacheConfig).build());
+    }
+
+    @Test
+    void testVaryHeader_isAuthorization_forJwtRoute() throws Exception {
+        RouteConfig route =
+                new RouteConfig(
+                        "r-jwt",
+                        "/**",
+                        null,
+                        "localhost:8080",
+                        FilterConfig.builder()
+                                .auth(new RouteConfig.AuthConfig("jwt", true, "secret", null))
+                                .cache(new RouteConfig.CacheConfig(true, 60))
+                                .build());
+        context.route(route);
+        context.claims(Map.of("sub", "user123"));
+
+        CacheEntry entry = new CacheEntry(200, "application/json", new byte[0], 0L);
+        filter.writeCachedResponse(context, entry);
+
+        assertEquals("Authorization", response.headers().get("Vary"));
+    }
+
+    @Test
+    void testVaryHeader_isXApiKey_forApiKeyRoute() throws Exception {
+        RouteConfig route =
+                new RouteConfig(
+                        "r-apikey",
+                        "/**",
+                        null,
+                        "localhost:8080",
+                        FilterConfig.builder()
+                                .auth(
+                                        new RouteConfig.AuthConfig(
+                                                "api-key", true, null, List.of("key1")))
+                                .cache(new RouteConfig.CacheConfig(true, 60))
+                                .build());
+        context.route(route);
+        request.headers.put("X-API-Key", "key1");
+
+        CacheEntry entry = new CacheEntry(200, "application/json", new byte[0], 0L);
+        filter.writeCachedResponse(context, entry);
+
+        assertEquals("X-API-Key", response.headers().get("Vary"));
+    }
+
+    @Test
+    void testVaryHeader_notSet_forNoAuthRoute() throws Exception {
+        RouteConfig route =
+                new RouteConfig(
+                        "r-noauth",
+                        "/**",
+                        null,
+                        "localhost:8080",
+                        FilterConfig.builder()
+                                .cache(new RouteConfig.CacheConfig(true, 60))
+                                .build());
+        context.route(route);
+        // No auth config, no identity needed
+
+        CacheEntry entry = new CacheEntry(200, "application/json", new byte[0], 0L);
+        filter.writeCachedResponse(context, entry);
+
+        assertNull(response.headers().get("Vary"));
     }
 }
