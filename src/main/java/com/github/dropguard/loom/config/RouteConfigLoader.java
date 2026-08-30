@@ -2,8 +2,10 @@ package com.github.dropguard.loom.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import com.github.dropguard.loom.exception.ConfigException;
 import com.github.dropguard.loom.model.GatewayConfig;
 import com.github.dropguard.loom.model.RouteConfig;
+import com.github.dropguard.loom.model.RouteConfig.AuthConfig;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -15,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -57,6 +60,9 @@ public class RouteConfigLoader implements RouteConfigProvider {
 
     @ConfigProperty(name = "gateway.config.path", defaultValue = "/config/routes.yaml")
     String configPath;
+
+    @ConfigProperty(name = "gateway.rate-limit.maximum-size", defaultValue = "10000")
+    int rateLimitMaxBuckets;
 
     @PostConstruct
     void load() {
@@ -179,6 +185,33 @@ public class RouteConfigLoader implements RouteConfigProvider {
         return sb.toString();
     }
 
+    private void validateAuthConfig(RouteConfig route) {
+        AuthConfig auth = route.filters().auth();
+        if (auth == null) {
+            return;
+        }
+        String type = auth.type() != null ? auth.type().toLowerCase() : "";
+        if ("jwt".equals(type)) {
+            String secret = auth.secret();
+            if (secret == null || secret.isEmpty()) {
+                throw new ConfigException(
+                        "JWT secret must be configured for route '" + route.id() + "'");
+            }
+        } else if ("api-key".equals(type)) {
+            List<String> apiKeys = auth.apiKeys();
+            if (apiKeys == null) {
+                throw new ConfigException(
+                        "API key list must be configured for route '" + route.id() + "'");
+            }
+            for (String key : apiKeys) {
+                if (key == null || key.isEmpty()) {
+                    throw new ConfigException(
+                            "API key cannot be empty for route '" + route.id() + "'");
+                }
+            }
+        }
+    }
+
     private void reloadConfig(Path configFile) {
         try {
             GatewayConfig newConfig = readConfig(configFile);
@@ -203,6 +236,8 @@ public class RouteConfigLoader implements RouteConfigProvider {
                             route.id());
                     return;
                 }
+                // Validate auth config (fail‑fast)
+                validateAuthConfig(route);
                 newPatterns.put(route.id(), compilePathPattern(route.path()));
             }
         }
