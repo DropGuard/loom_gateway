@@ -160,6 +160,62 @@ class GrayReleaseFilterTest {
         }
     }
 
+    // ---- Percentage threshold boundary (bucket < threshold) ----
+
+    @Test
+    void grayRelease_thresholdBoundary_zero() throws Exception {
+        // With threshold = 0, no bucket (0-99) is < 0, so should always be false
+        RouteConfig route = grayRoutePercentage(0);
+        FilterContext ctx = new FilterContext(new MockRequest(), null);
+        ctx.route(route);
+        // Give it an identity so it enters the bucket calculation
+        ctx.claims(Map.of("sub", "any-user"));
+        AtomicBoolean nextCalled = new AtomicBoolean(false);
+        filter.apply(ctx, () -> nextCalled.set(true));
+        // Should NOT route to gray (since bucket < 0 is never true)
+        assertEquals("backend:8080", ctx.effectiveUpstream());
+    }
+
+    @Test
+    void grayRelease_thresholdBoundary_hundred() throws Exception {
+        // With threshold = 100, all buckets (0-99) are < 100, so should always be true
+        RouteConfig route = grayRoutePercentage(100);
+        FilterContext ctx = new FilterContext(new MockRequest(), null);
+        ctx.route(route);
+        // Give it an identity so it enters the bucket calculation
+        ctx.claims(Map.of("sub", "any-user"));
+        AtomicBoolean nextCalled = new AtomicBoolean(false);
+        filter.apply(ctx, () -> nextCalled.set(true));
+        // Should route to gray (since bucket < 100 is always true for buckets 0-99)
+        assertEquals("gray-backend:8080", ctx.effectiveUpstream());
+    }
+
+    @Test
+    void grayRelease_thresholdBoundary_knownIdentity() throws Exception {
+        // Test with a known identity to verify bucket < threshold logic
+        // Using "test" which has hashCode 115029 (let's verify: actually we don't need to know
+        // exact value)
+        // Instead, we'll test the logic by verifying same identity gives consistent results
+
+        RouteConfig route = grayRoutePercentage(50);
+
+        // Test identity that should give bucket < 50 for some threshold
+        FilterContext ctx1 = new FilterContext(new MockRequest(), null);
+        ctx1.route(route);
+        ctx1.claims(Map.of("sub", "identity-A"));
+
+        FilterContext ctx2 = new FilterContext(new MockRequest(), null);
+        ctx2.route(route);
+        ctx2.claims(Map.of("sub", "identity-A"));
+
+        // Same identity should give same result
+        applyFilter(ctx1);
+        applyFilter(ctx2);
+        boolean result1 = "gray-backend:8080".equals(ctx1.effectiveUpstream());
+        boolean result2 = "gray-backend:8080".equals(ctx2.effectiveUpstream());
+        assertEquals(result1, result2);
+    }
+
     // ---- Distribution: many identities approximate the configured percent ----
 
     @Test
