@@ -12,7 +12,18 @@ A lightweight, high-performance API gateway built on **Quarkus + Vert.x + Java 2
 - **Prometheus Metrics**: Exposes `/q/metrics` and `/q/health/live`
 - **K8s-Native**: Resolves backends via K8s DNS; config mounted via ConfigMap
 
+
+## Configuration Details
+
+- **Route Path Patterns**: The gateway automatically escapes regular‑expression metacharacters (`.`, `*`, `+`, `?`, `(`, `)`, `[`, `]`, `{`, `}`, `^`, `$`, `\`, `|`) in the `path` field, so you can safely write versions like `/api/v1.0/**` or `/api/(v2)/**`. Only the two wildcards `*` (single segment) and `**` (zero or more segments) retain their special meaning.
+
+- **Duplicate Route IDs**: If the same `id` appears more than once in `routes.yaml`, the loader rejects the entire update, logs an error, and keeps the previously loaded configuration. This prevents a route from being silently shadowed.
+
+- **Vary Header**: When a response is cached, the gateway sets the `Vary` header to the authentication header that participated in the cache key: `Authorization` for JWT‑protected routes, `X-API-Key` for API‑Key‑protected routes. No `Vary` header is added for routes without authentication.
+
 ## Quick Start
+
+> **Note**: Benchmark numbers (throughput, latency, memory) for the rate limiter, cache, and gray‑release filters will be appended after the next benchmark run. See `benchmark/RESULTS.md` for the raw data and update this section accordingly.
 
 ### 1. Route Configuration
 
