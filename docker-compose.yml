@@ -13,9 +13,10 @@ services:
       # benchmark/RESULTS.md pins -Xms256m -Xmx256m -XX:+AlwaysPreTouch -XX:+UseG1GC
       # on JDK 25. The previous ZGC/64m heap setting silently diverged from both.
       - JAVA_OPTS=-Xms256m -Xmx256m -XX:+AlwaysPreTouch -XX:+UseG1GC -Djava.util.logging.manager=org.jboss.logmanager.LogManager
-      # 本地 docker compose 专用占位值 —— 切勿复制到生产!
-      # 生产环境通过 Kubernetes Secret(envFrom.secretRef)注入真实密钥;
-      # 若未注入, 网关注入的路由将带空密钥, 认证请求返回 401/500。
+      # Local docker-compose-only placeholders — never copy these to production!
+      # Production injects real secrets from a Kubernetes Secret (envFrom.secretRef).
+      # Required secrets are validated when routes.yaml loads: if one resolves to
+      # empty, the gateway fails fast at startup instead of serving requests.
       - JWT_SECRET=CHANGE_ME_LOCAL_DOCKER_COMPOSE_ONLY_32chars_min!!
       - API_KEY_1=CHANGE_ME_LOCAL_API_KEY_1
       - API_KEY_2=CHANGE_ME_LOCAL_API_KEY_2

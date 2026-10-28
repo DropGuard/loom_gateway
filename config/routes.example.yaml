@@ -1,0 +1,85 @@
+routes:
+  - id: api-users
+    path: /api/users/**
+    methods: [GET, POST, PUT, DELETE]
+    upstream: mock-backend:80
+    filters:
+      auth:
+        type: jwt
+        required: true
+        secret: "${JWT_SECRET:}"
+      rateLimit:
+        limit: 1000
+        windowMs: 1000
+      circuitBreaker:
+        failureThreshold: 5
+        resetTimeoutMs: 30000
+      cache:
+        enabled: true
+        ttlSeconds: 60
+      gray:
+        mode: percentage
+        grayUpstream: user-service-v2.default.svc.cluster.local:8080
+        percent: 10
+
+  - id: api-public
+    path: /api/public/**
+    methods: [GET]
+    upstream: mock-backend:80
+    filters:
+      auth:
+        type: none
+        required: false
+      rateLimit:
+        limit: 5000
+        windowMs: 1000
+      circuitBreaker:
+        failureThreshold: 10
+        resetTimeoutMs: 15000
+      cache:
+        enabled: true
+        ttlSeconds: 300
+
+  - id: api-key-service
+    path: /api/external/**
+    methods: [GET, POST]
+    upstream: external-service.default.svc.cluster.local:8080
+    filters:
+      auth:
+        type: api-key
+        required: true
+        # Keys are injected from the environment (${API_KEY_1} / ${API_KEY_2} at
+        # load time); no production key is ever committed to the repository.
+        apiKeys:
+          - "${API_KEY_1:}"
+          - "${API_KEY_2:}"
+      rateLimit:
+        limit: 100
+        windowMs: 1000
+
+  # WebSocket routes. Auth mirrors the HTTP routes; keep them in sync with
+  # routes.yaml.
+  - id: ws-chat
+    path: /ws/chat/**
+    methods: [GET]
+    upstream: chat-service.default.svc.cluster.local:8080
+    filters:
+      auth:
+        type: jwt
+        required: true
+        secret: "${JWT_SECRET:}"
+      circuitBreaker:
+        failureThreshold: 5
+        resetTimeoutMs: 30000
+
+  - id: ws-public
+    path: /ws/public/**
+    methods: [GET]
+    upstream: mock-backend:80
+    filters:
+      auth:
+        type: none
+        required: false
+      circuitBreaker:
+        failureThreshold: 10
+        resetTimeoutMs: 15000

@@ -57,8 +57,8 @@ routes:
         limit: 100
         windowMs: 1000
 
-  # WebSocket routes (DEFECT A1: previously missing from production config,
-  # so WebSocketProxyHandler was never reached). Auth mirrors the HTTP routes.
+  # WebSocket routes. Auth mirrors the HTTP routes; keep them in sync with
+  # routes.example.yaml.
   - id: ws-chat
     path: /ws/chat/**
     methods: [GET]

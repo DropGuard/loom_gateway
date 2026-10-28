@@ -10,7 +10,8 @@ A lightweight, high-performance API gateway built on **Quarkus + Vert.x + Java 2
 - **Filter Chain**: Authentication (JWT/HS256), rate limiting, circuit breaking, canary (gray) release, and response caching — executed in priority order
 - **Hot Reload**: route config is re-read on file change (mtime polling, which also survives Kubernetes ConfigMap symlink rotation) — no restart required
 - **Prometheus Metrics**: Exposes `/q/metrics` and `/q/health/live`
-- **K8s-Native**: Resolves backends via K8s DNS; config mounted via ConfigMap
+- **Kubernetes-ready**: Upstreams can use cluster DNS names; routes mount from a ConfigMap with symlink-aware hot reload; readiness/liveness probes and graceful shutdown are built in
+- **Runs standalone**: The same fast-jar/native binary also runs via `java -jar` or Docker, with the config path set by `gateway.config.path` / `GATEWAY_CONFIG_PATH`
 
 
 ## Configuration Details
@@ -21,13 +22,76 @@ A lightweight, high-performance API gateway built on **Quarkus + Vert.x + Java 2
 
 - **Vary Header**: When a response is cached, the gateway sets the `Vary` header to the authentication header that participated in the cache key: `Authorization` for JWT‑protected routes, `X-API-Key` for API‑Key‑protected routes. No `Vary` header is added for routes without authentication.
 
+- **Credential Handling**: The gateway terminates authentication. On routes that enforce JWT or API-key auth, client-supplied `Authorization`/`X-API-Key` are not forwarded; downstream receives `X-User-Id` (the JWT `sub`, or the SHA-256 hash of the API key) plus any configured `X-Claim-*` headers. Client-supplied `X-User-Id`/`X-Claim-*` are always dropped. Routes with `auth.type: none` pass client credentials through unchanged. Cookies are forwarded unchanged; the gateway does not authenticate via cookies.
+
+- **Config Source & Startup**: `routes.yaml` is the only configuration source today (local file or Kubernetes ConfigMap). A missing or invalid file aborts startup; after a successful start, a failed hot reload keeps the last known-good route table.
+
 ## Quick Start
 
-> **Note**: Benchmark numbers (throughput, latency, memory) for the rate limiter, cache, and gray‑release filters will be appended after the next benchmark run. See `benchmark/RESULTS.md` for the raw data and update this section accordingly.
+### 1. Run with Docker Compose (fastest)
 
-### 1. Route Configuration
+```bash
+docker compose up --build
+curl http://localhost:8080/q/health/live
+# {"status":"UP"}
+```
 
-Edit `config/routes.yaml`:
+`docker-compose.yml` supplies local-only `CHANGE_ME_*` placeholder secrets so the gateway can start. Never reuse them outside local development.
+
+To run the published image directly instead, pass the secrets referenced by `config/routes.yaml` — required secrets are validated at load time, so empty values abort startup:
+
+```bash
+docker run -d --name loom-gateway \
+  -p 8080:8080 \
+  -e JWT_SECRET='local-only-jwt-secret-at-least-32-chars!!' \
+  -e API_KEY_1='local-only-api-key-1' \
+  -e API_KEY_2='local-only-api-key-2' \
+  -v ./config:/config:ro \
+  ghcr.io/dropguard/loom_gateway:latest
+```
+
+The image is published to GHCR for tags matching `v*` or `[0-9]+.*`; see [Docker Image](#docker-image).
+
+### 2. Build and Run Locally (JVM mode)
+
+**Dev mode** (hot reload, but slower startup and no AOT optimization — **benchmark numbers are not measured in this mode**):
+
+```bash
+# Local-only secrets: the bundled config/routes.yaml requires them at load time.
+export JWT_SECRET='local-only-jwt-secret-at-least-32-chars!!'
+export API_KEY_1='local-only-api-key-1'
+export API_KEY_2='local-only-api-key-2'
+mvn quarkus:dev
+```
+
+> ⚠️ **Dev mode vs production fast-jar**:
+> - Dev startup is 5–10x slower (Live Reload, DevUI, debug agent)
+> - First-request latency is higher (lazy initialization)
+> - **Steady-state throughput and latency are essentially the same**, but **startup and first-request experience differ substantially**
+> - Use fast-jar or native mode to reproduce the benchmark numbers below.
+
+**Production mode** (fast-jar, fully JIT-optimized, same mode as the benchmark):
+
+```bash
+mvn clean package -DskipTests
+# Same three secrets as dev mode (or real values from your secret store)
+export JWT_SECRET='local-only-jwt-secret-at-least-32-chars!!'
+export API_KEY_1='local-only-api-key-1'
+export API_KEY_2='local-only-api-key-2'
+java -jar target/quarkus-app/quarkus-run.jar
+```
+
+### 3. Native Build (fastest startup, tens of ms, ~30 MB)
+
+```bash
+mvn clean package -Pnative -DskipTests
+# The artifact name includes the version, e.g. loom-gateway-1.0.0-SNAPSHOT-runner
+./target/loom-gateway-*-runner
+```
+
+### 4. Configure routes.yaml
+
+Edit `config/routes.yaml` (or start from [`config/routes.example.yaml`](config/routes.example.yaml)):
 
 ```yaml
 routes:
@@ -39,7 +103,7 @@ routes:
       auth:
         type: jwt
         required: true
-        secret: "your-jwt-secret"
+        secret: "${JWT_SECRET:}"
       rateLimit:
         limit: 1000
         windowMs: 1000
@@ -51,34 +115,11 @@ routes:
         ttlSeconds: 60
 ```
 
-### 2. Local Development
-
-```bash
-mvn quarkus:dev
-```
-
-### 3. Build & Run
-
-```bash
-# Requires JDK 25
-mvn clean package -DskipTests
-java -jar target/quarkus-app/quarkus-run.jar
-```
-
-### 4. Docker
-
-mvn clean package -DskipTests
-docker build -t loom-gateway .
-docker run -p 8080:8080 -v ./config:/config:ro loom-gateway
-
-
-> **密钥注入**：认证密钥通过环境变量在网关加载 `routes.yaml` 时展开
-> (`${JWT_SECRET:}` / `${API_KEY_1:}` / `${API_KEY_2:}`)。未注入时对应路由以
-> 空密钥运行，认证请求返回 401/500。本地开发用 `docker-compose up`(内置
-> `CHANGE_ME_*` 占位值)；**生产环境请用 Kubernetes Secret (`envFrom.secretRef`)
-> 注入真实值，切勿沿用 compose 占位**。`docker-compose.yml` 中的注释同样标明了这一点。
+> **Secret injection**: Auth secrets are expanded from environment variables when the gateway loads `routes.yaml` (`${JWT_SECRET:}`, `${API_KEY_1:}`, `${API_KEY_2:}`). A required secret that resolves to empty is rejected at load time: the initial load fails fast and the gateway refuses to start, while a bad hot reload keeps the last known-good configuration. Local development can use the `CHANGE_ME_*` placeholders in `docker-compose.yml`; **production must inject real values from a Kubernetes Secret (`envFrom.secretRef`) and must never reuse the compose placeholders**.
 
 ## Benchmark
+
+> **Note**: the benchmark numbers below were measured in **fast-jar mode** (`mvn clean package -DskipTests`); `quarkus:dev` has significantly different startup behavior.
 
 Standardized comparison under identical container conditions:
 - **Pod Limit:** 2 CPU / 512M RAM
@@ -133,6 +174,16 @@ cd benchmark
 python run.py
 ```
 
+## Docker Image
+
+Images are built and pushed to GitHub Container Registry by [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml) when a tag matching `v*` or `[0-9]+.*` is pushed (or manually via `workflow_dispatch`):
+
+```bash
+docker pull ghcr.io/dropguard/loom_gateway:latest
+```
+
+Tags pushed for a release are the Git tag itself plus `latest`.
+
 ## Observability & Health
 
 - **Prometheus Metrics:** Visit `http://localhost:8080/q/metrics` for Prometheus-format metrics.
@@ -159,6 +210,8 @@ The gateway uses a layered approach for response caching:
 | > 1MB | Stream (pipeTo) | Directly piped from upstream to client, bypasses cache |
 
 This ensures API responses benefit from caching while large responses still use efficient streaming without excessive JVM heap usage.
+
+Cache memory is bounded by **total payload bytes**, not entry count: the cache defaults to a 64 MiB budget (response body + key + ~256 B per-entry overhead) and evicts via W-TinyLFU. A single response larger than the budget is not cached at all, so a handful of large entries can never exhaust the heap.
 
 ## When NOT to Use This Gateway
 
