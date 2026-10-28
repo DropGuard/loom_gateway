@@ -39,9 +39,8 @@ class GatewayWebSocketCircuitBreakerTest {
     }
 
     /**
-     * The core regression: a WebSocket upgrade completes asynchronously, so under the old model
-     * every successful upgrade was counted as a failure and the breaker opened after threshold
-     * successes. Here, repeated successes must keep the breaker CLOSED (ws-chat has
+     * A WebSocket upgrade completes asynchronously; a successful upgrade must be recorded as a
+     * success, not a failure. Repeated successes must keep the breaker CLOSED (ws-chat has
      * failureThreshold=3).
      */
     @Test
@@ -55,7 +54,11 @@ class GatewayWebSocketCircuitBreakerTest {
             client.webSocket(opts)
                     .onSuccess(
                             ws -> {
-                                ws.textMessageHandler(result::complete);
+                                ws.textMessageHandler(
+                                        msg -> {
+                                            result.complete(msg);
+                                            ws.close();
+                                        });
                                 ws.writeTextMessage("hi");
                             })
                     .onFailure(result::completeExceptionally);
@@ -82,7 +85,13 @@ class GatewayWebSocketCircuitBreakerTest {
                                 // Gateway upgrades the client handshake, then fails to reach the
                                 // (unlistened) upstream and closes the client socket — that close
                                 // is the signal the upgrade ultimately failed.
-                                ws.exceptionHandler(err -> failed.complete(true));
+                                ws.exceptionHandler(
+                                        err -> {
+                                            failed.complete(true);
+                                            if (!ws.isClosed()) {
+                                                ws.close();
+                                            }
+                                        });
                                 ws.closeHandler(v -> failed.complete(true));
                             })
                     .onFailure(err -> failed.complete(true));
@@ -94,7 +103,13 @@ class GatewayWebSocketCircuitBreakerTest {
         client.webSocket(wsOpts("/ws/fail/blocked"))
                 .onSuccess(
                         ws -> {
-                            ws.exceptionHandler(err -> blocked.complete(true));
+                            ws.exceptionHandler(
+                                    err -> {
+                                        blocked.complete(true);
+                                        if (!ws.isClosed()) {
+                                            ws.close();
+                                        }
+                                    });
                             ws.closeHandler(v -> blocked.complete(true));
                         })
                 .onFailure(err -> blocked.complete(true));

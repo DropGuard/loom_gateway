@@ -66,13 +66,13 @@ class AuthFilterTest {
     }
 
     @Test
-    void testNoAuthRequiredPasses() throws Exception {
+    void authNotRequired_passesThrough() throws Exception {
         context.route(routeWithAuth(new AuthConfig("jwt", false, null, null)));
         assertTrue(applyAndCheckNext(context));
     }
 
     @Test
-    void testJwtValidToken() throws Exception {
+    void validJwt_passesAndPopulatesClaims() throws Exception {
         String token = buildJwt("user-1", false);
         request.headers.put("Authorization", "Bearer " + token);
         context.route(routeWithAuth(new AuthConfig("jwt", true, JWT_SECRET, null)));
@@ -82,7 +82,7 @@ class AuthFilterTest {
     }
 
     @Test
-    void testJwtMissingHeader() throws Exception {
+    void missingAuthorizationHeader_returns401() throws Exception {
         context.route(routeWithAuth(new AuthConfig("jwt", true, JWT_SECRET, null)));
 
         assertFalse(applyAndCheckNext(context));
@@ -90,7 +90,7 @@ class AuthFilterTest {
     }
 
     @Test
-    void testJwtExpiredToken() throws Exception {
+    void expiredJwt_returns401() throws Exception {
         String token = buildJwt("user-1", true);
         request.headers.put("Authorization", "Bearer " + token);
         context.route(routeWithAuth(new AuthConfig("jwt", true, JWT_SECRET, null)));
@@ -100,7 +100,7 @@ class AuthFilterTest {
     }
 
     @Test
-    void testApiKeyValid() throws Exception {
+    void validApiKey_passes() throws Exception {
         request.headers.put("X-API-Key", "valid-key-123");
         context.route(
                 routeWithAuth(
@@ -110,7 +110,7 @@ class AuthFilterTest {
     }
 
     @Test
-    void testApiKeyMissing() throws Exception {
+    void missingApiKey_returns401() throws Exception {
         context.route(
                 routeWithAuth(new AuthConfig("api-key", true, null, List.of("valid-key-123"))));
 
@@ -119,7 +119,7 @@ class AuthFilterTest {
     }
 
     @Test
-    void testApiKeyInvalid() throws Exception {
+    void invalidApiKey_returns401() throws Exception {
         request.headers.put("X-API-Key", "wrong-key");
         context.route(
                 routeWithAuth(new AuthConfig("api-key", true, null, List.of("valid-key-123"))));
@@ -131,27 +131,21 @@ class AuthFilterTest {
     // ---- Boundary tests ----
 
     @Test
-    void testJwtSecretEmpty_returns500() throws Exception {
-        String token = buildJwt("user-1", false);
-        request.headers.put("Authorization", "Bearer " + token);
-        context.route(routeWithAuth(new AuthConfig("jwt", true, "", null)));
+    void jwtSecretMissing_returns500() throws Exception {
+        for (String secret : new String[] {null, ""}) {
+            MockRequest req = new MockRequest();
+            req.headers.put("Authorization", "Bearer " + buildJwt("user-1", false));
+            MockResponse resp = new MockResponse();
+            FilterContext ctx = new FilterContext(req, resp);
+            ctx.route(routeWithAuth(new AuthConfig("jwt", true, secret, null)));
 
-        assertFalse(applyAndCheckNext(context));
-        assertEquals(500, response.statusCode);
+            assertFalse(applyAndCheckNext(ctx), "secret=" + secret);
+            assertEquals(500, resp.statusCode, "secret=" + secret);
+        }
     }
 
     @Test
-    void testJwtSecretNull_returns500() throws Exception {
-        String token = buildJwt("user-1", false);
-        request.headers.put("Authorization", "Bearer " + token);
-        context.route(routeWithAuth(new AuthConfig("jwt", true, null, null)));
-
-        assertFalse(applyAndCheckNext(context));
-        assertEquals(500, response.statusCode);
-    }
-
-    @Test
-    void testJwtSignatureMismatch_returns401() throws Exception {
+    void jwtSignedWithDifferentSecret_returns401() throws Exception {
         // Sign with a different secret
         Date now = new Date();
         JWTClaimsSet claims =
@@ -173,7 +167,7 @@ class AuthFilterTest {
     }
 
     @Test
-    void testJwtMalformed_returns401() throws Exception {
+    void malformedJwt_returns401() throws Exception {
         request.headers.put("Authorization", "Bearer not-a-valid-jwt");
         context.route(routeWithAuth(new AuthConfig("jwt", true, JWT_SECRET, null)));
 
@@ -182,7 +176,7 @@ class AuthFilterTest {
     }
 
     @Test
-    void testJwtNotBefore_returns401() throws Exception {
+    void jwtNotYetValid_returns401() throws Exception {
         Date now = new Date();
         JWTClaimsSet claims =
                 new JWTClaimsSet.Builder()
@@ -204,7 +198,7 @@ class AuthFilterTest {
     }
 
     @Test
-    void testUnknownAuthType_returns403() throws Exception {
+    void unknownAuthType_returns403() throws Exception {
         context.route(routeWithAuth(new AuthConfig("oauth2", true, null, null)));
 
         assertFalse(applyAndCheckNext(context));

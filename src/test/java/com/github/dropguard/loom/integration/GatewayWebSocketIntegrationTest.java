@@ -45,7 +45,11 @@ class GatewayWebSocketIntegrationTest {
         client.webSocket(wsOpts("/ws/public/echo"))
                 .onSuccess(
                         ws -> {
-                            ws.textMessageHandler(result::complete);
+                            ws.textMessageHandler(
+                                    msg -> {
+                                        result.complete(msg);
+                                        ws.close();
+                                    });
                             ws.writeTextMessage("hello");
                         })
                 .onFailure(result::completeExceptionally);
@@ -61,7 +65,11 @@ class GatewayWebSocketIntegrationTest {
         client.webSocket(wsOpts("/ws/public/echo"))
                 .onSuccess(
                         ws -> {
-                            ws.binaryMessageHandler(buf -> result.complete(buf.getBytes()));
+                            ws.binaryMessageHandler(
+                                    buf -> {
+                                        result.complete(buf.getBytes());
+                                        ws.close();
+                                    });
                             ws.writeBinaryMessage(io.vertx.core.buffer.Buffer.buffer(payload));
                         })
                 .onFailure(result::completeExceptionally);
@@ -98,7 +106,11 @@ class GatewayWebSocketIntegrationTest {
         client.webSocket(opts)
                 .onSuccess(
                         ws -> {
-                            ws.textMessageHandler(result::complete);
+                            ws.textMessageHandler(
+                                    msg -> {
+                                        result.complete(msg);
+                                        ws.close();
+                                    });
                             ws.writeTextMessage("authenticated");
                         })
                 .onFailure(result::completeExceptionally);

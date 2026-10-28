@@ -14,6 +14,12 @@ public class IntegrationTestProfile implements QuarkusTestProfile {
 
     @Override
     public Map<String, String> getConfigOverrides() {
-        return Map.of("gateway.config.path", "src/test/resources/config/routes.yaml");
+        return Map.of(
+                "gateway.config.path",
+                "src/test/resources/config/routes.yaml",
+                // Tests finish synchronously; a shorter drain window keeps the
+                // suite from paying the production 30s shutdown timeout.
+                "quarkus.shutdown.timeout",
+                "5s");
     }
 }
