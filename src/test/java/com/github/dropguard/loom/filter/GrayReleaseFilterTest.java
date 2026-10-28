@@ -3,12 +3,17 @@ package com.github.dropguard.loom.filter;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.github.dropguard.loom.model.RouteConfig;
+import com.github.dropguard.loom.model.RouteConfig.AuthConfig;
 import com.github.dropguard.loom.model.RouteConfig.FilterConfig;
 import com.github.dropguard.loom.model.RouteConfig.GrayConfig;
 import com.github.dropguard.loom.testutil.MockRequest;
+import com.github.dropguard.loom.util.ApiKeyHasher;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.IntFunction;
+import java.util.function.Supplier;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,6 +28,22 @@ class GrayReleaseFilterTest {
     }
 
     private RouteConfig grayRoutePercentage(double percent) {
+        return new RouteConfig(
+                "r1",
+                "/**",
+                null,
+                "backend:8080",
+                FilterConfig.builder()
+                        // API-key auth means X-API-Key supplied by a client is validated by
+                        // AuthFilter before it is trusted as a canary bucket identity.
+                        .auth(new AuthConfig("api-key", true, null, List.of("test-key")))
+                        .gray(
+                                new GrayConfig(
+                                        "percentage", "gray-backend:8080", percent, null, null))
+                        .build());
+    }
+
+    private RouteConfig grayRoutePercentageWithoutAuth(double percent) {
         return new RouteConfig(
                 "r1",
                 "/**",
@@ -52,34 +73,45 @@ class GrayReleaseFilterTest {
                         .build());
     }
 
-    private FilterContext contextWithJwtSub(String sub) {
+    private FilterContext context(String sub, String apiKey, double percent) {
         MockRequest req = new MockRequest();
+        if (apiKey != null) {
+            req.headers.put("X-API-Key", apiKey);
+        }
         FilterContext ctx = new FilterContext(req, null);
-        ctx.route(grayRoutePercentage(30));
-        ctx.claims(Map.of("sub", (Object) sub));
+        ctx.route(grayRoutePercentage(percent));
+        if (sub != null) {
+            ctx.claims(Map.of("sub", (Object) sub));
+        }
         return ctx;
     }
 
+    private FilterContext contextWithJwtSub(String sub) {
+        return context(sub, null, 30);
+    }
+
     private FilterContext contextWithApiKey(String key) {
-        MockRequest req = new MockRequest();
-        req.headers.put("X-API-Key", key);
-        FilterContext ctx = new FilterContext(req, null);
-        ctx.route(grayRoutePercentage(30));
-        return ctx;
+        return context(null, key, 30);
     }
 
     private void applyFilter(FilterContext ctx) throws Exception {
         filter.apply(ctx, () -> {});
     }
 
+    private boolean isGray(FilterContext ctx) throws Exception {
+        applyFilter(ctx);
+        return "gray-backend:8080".equals(ctx.effectiveUpstream());
+    }
+
     // ---- No gray config ----
 
     @Test
-    void noGrayConfig_continues() throws Exception {
+    void noGrayConfig_passesThrough() throws Exception {
         FilterContext ctx = new FilterContext(new MockRequest(), null);
         ctx.route(new RouteConfig("r1", "/**", null, "backend:8080", null));
         AtomicBoolean nextCalled = new AtomicBoolean(false);
         filter.apply(ctx, () -> nextCalled.set(true));
+
         assertTrue(nextCalled.get());
         assertEquals("backend:8080", ctx.effectiveUpstream());
     }
@@ -87,7 +119,7 @@ class GrayReleaseFilterTest {
     // ---- Header match (trusted dedicated header only; client headers ignored) ----
 
     @Test
-    void ruleGray_routesToGray_whenTrustedHeaderSet() throws Exception {
+    void ruleGray_trustedHeaderRoutesToCanary() throws Exception {
         MockRequest req = new MockRequest();
         req.headers.put(GrayReleaseFilter.TRUSTED_GRAY_HEADER, "true");
         FilterContext ctx = new FilterContext(req, null);
@@ -98,8 +130,7 @@ class GrayReleaseFilterTest {
     }
 
     @Test
-    void ruleGray_ignoresClientSuppliedHeader() throws Exception {
-        // A client forging the client-facing header must NOT be routed to the canary.
+    void ruleGray_clientFacingHeaderIsIgnored() throws Exception {
         MockRequest req = new MockRequest();
         req.headers.put("X-Canary", "true");
         FilterContext ctx = new FilterContext(req, null);
@@ -110,7 +141,7 @@ class GrayReleaseFilterTest {
     }
 
     @Test
-    void ruleGray_mismatch_staysOnPrimary() throws Exception {
+    void ruleGray_wrongValueStaysOnPrimary() throws Exception {
         MockRequest req = new MockRequest();
         req.headers.put(GrayReleaseFilter.TRUSTED_GRAY_HEADER, "false");
         FilterContext ctx = new FilterContext(req, null);
@@ -120,117 +151,83 @@ class GrayReleaseFilterTest {
         assertEquals("backend:8080", ctx.effectiveUpstream());
     }
 
-    // ---- Deterministic: same identity -> same result ----
+    // ---- Same identity -> same bucket, for both identity sources ----
 
     @Test
-    void sameJwtSub_alwaysSameDecision() throws Exception {
-        boolean first = isGray(contextWithJwtSub("user-42"));
-        for (int i = 0; i < 100; i++) {
-            assertEquals(
-                    first,
-                    isGray(contextWithJwtSub("user-42")),
-                    "Same identity must always produce the same routing decision");
-        }
+    void sameIdentity_alwaysSameDecision() throws Exception {
+        assertSameDecision(() -> contextWithJwtSub("user-42"));
+        assertSameDecision(() -> contextWithApiKey("pk-stable-key"));
     }
 
-    @Test
-    void sameApiKey_alwaysSameDecision() throws Exception {
-        boolean first = isGray(contextWithApiKey("pk-stable-key"));
-        for (int i = 0; i < 100; i++) {
+    private void assertSameDecision(Supplier<FilterContext> contexts) throws Exception {
+        boolean first = isGray(contexts.get());
+        for (int i = 0; i < 20; i++) {
             assertEquals(
                     first,
-                    isGray(contextWithApiKey("pk-stable-key")),
-                    "Same API key must always produce the same routing decision");
+                    isGray(contexts.get()),
+                    "same identity must always produce the same routing decision");
         }
     }
 
     // ---- No identity -> never gray ----
 
     @Test
-    void noIdentity_neverRoutesToGray() throws Exception {
-        RouteConfig route = grayRoutePercentage(100);
-        for (int i = 0; i < 100; i++) {
-            FilterContext ctx = new FilterContext(new MockRequest(), null);
-            ctx.route(route);
-            applyFilter(ctx);
-            assertEquals(
-                    "backend:8080",
-                    ctx.effectiveUpstream(),
-                    "Requests without identity must never route to gray");
-        }
-    }
-
-    // ---- Percentage threshold boundary (bucket < threshold) ----
-
-    @Test
-    void grayRelease_thresholdBoundary_zero() throws Exception {
-        // With threshold = 0, no bucket (0-99) is < 0, so should always be false
-        RouteConfig route = grayRoutePercentage(0);
+    void noIdentity_staysOnPrimary() throws Exception {
         FilterContext ctx = new FilterContext(new MockRequest(), null);
-        ctx.route(route);
-        // Give it an identity so it enters the bucket calculation
-        ctx.claims(Map.of("sub", "any-user"));
-        AtomicBoolean nextCalled = new AtomicBoolean(false);
-        filter.apply(ctx, () -> nextCalled.set(true));
-        // Should NOT route to gray (since bucket < 0 is never true)
-        assertEquals("backend:8080", ctx.effectiveUpstream());
+        ctx.route(grayRoutePercentage(100));
+
+        applyFilter(ctx);
+        assertEquals(
+                "backend:8080",
+                ctx.effectiveUpstream(),
+                "requests without identity must never route to gray");
     }
 
     @Test
-    void grayRelease_thresholdBoundary_hundred() throws Exception {
-        // With threshold = 100, all buckets (0-99) are < 100, so should always be true
-        RouteConfig route = grayRoutePercentage(100);
-        FilterContext ctx = new FilterContext(new MockRequest(), null);
-        ctx.route(route);
-        // Give it an identity so it enters the bucket calculation
-        ctx.claims(Map.of("sub", "any-user"));
-        AtomicBoolean nextCalled = new AtomicBoolean(false);
-        filter.apply(ctx, () -> nextCalled.set(true));
-        // Should route to gray (since bucket < 100 is always true for buckets 0-99)
-        assertEquals("gray-backend:8080", ctx.effectiveUpstream());
+    void forgedApiKeyOnUnauthenticatedRoute_staysOnPrimary() throws Exception {
+        // Without API-key auth the header is client-controlled, so it must not
+        // be usable to self-select the canary.
+        MockRequest req = new MockRequest();
+        req.headers.put("X-API-Key", "forged-key");
+        FilterContext ctx = new FilterContext(req, null);
+        ctx.route(grayRoutePercentageWithoutAuth(100));
+
+        applyFilter(ctx);
+        assertEquals(
+                "backend:8080",
+                ctx.effectiveUpstream(),
+                "unvalidated X-API-Key must not act as a canary identity");
     }
 
+    // ---- Percentage boundaries ----
+
     @Test
-    void grayRelease_thresholdBoundary_knownIdentity() throws Exception {
-        // Test with a known identity to verify bucket < threshold logic
-        // Using "test" which has hashCode 115029 (let's verify: actually we don't need to know
-        // exact value)
-        // Instead, we'll test the logic by verifying same identity gives consistent results
+    void percentageBoundaries_respectBucketRange() throws Exception {
+        assertEquals("backend:8080", upstreamAt(0));
+        assertEquals("gray-backend:8080", upstreamAt(100));
+    }
 
-        RouteConfig route = grayRoutePercentage(50);
-
-        // Test identity that should give bucket < 50 for some threshold
-        FilterContext ctx1 = new FilterContext(new MockRequest(), null);
-        ctx1.route(route);
-        ctx1.claims(Map.of("sub", "identity-A"));
-
-        FilterContext ctx2 = new FilterContext(new MockRequest(), null);
-        ctx2.route(route);
-        ctx2.claims(Map.of("sub", "identity-A"));
-
-        // Same identity should give same result
-        applyFilter(ctx1);
-        applyFilter(ctx2);
-        boolean result1 = "gray-backend:8080".equals(ctx1.effectiveUpstream());
-        boolean result2 = "gray-backend:8080".equals(ctx2.effectiveUpstream());
-        assertEquals(result1, result2);
+    private String upstreamAt(double percent) throws Exception {
+        FilterContext ctx = context("any-user", null, percent);
+        applyFilter(ctx);
+        return ctx.effectiveUpstream();
     }
 
     // ---- Distribution: many identities approximate the configured percent ----
 
     @Test
-    void jwtSub_distributionMatchesPercent() throws Exception {
-        double percent = 30.0;
-        RouteConfig route = grayRoutePercentage(percent);
+    void distributionApproximatesConfiguredPercent() throws Exception {
+        assertDistribution(30.0, i -> context("user-" + i, null, 30.0));
+        assertDistribution(50.0, i -> context(null, "key-" + i, 50.0));
+    }
+
+    private void assertDistribution(double percent, IntFunction<FilterContext> contexts)
+            throws Exception {
         int grayCount = 0;
         int total = 1000;
 
         for (int i = 0; i < total; i++) {
-            FilterContext ctx = new FilterContext(new MockRequest(), null);
-            ctx.route(route);
-            ctx.claims(Map.of("sub", (Object) ("user-" + i)));
-            applyFilter(ctx);
-            if ("gray-backend:8080".equals(ctx.effectiveUpstream())) {
+            if (isGray(contexts.apply(i))) {
                 grayCount++;
             }
         }
@@ -241,57 +238,29 @@ class GrayReleaseFilterTest {
                 String.format("Expected ~%.0f%% gray, got %.1f%%", percent, actual));
     }
 
-    @Test
-    void apiKey_distributionMatchesPercent() throws Exception {
-        double percent = 50.0;
-        RouteConfig route = grayRoutePercentage(percent);
-        int grayCount = 0;
-        int total = 1000;
+    // ---- JWT sub takes priority over API key ----
 
-        for (int i = 0; i < total; i++) {
-            MockRequest req = new MockRequest();
-            req.headers.put("X-API-Key", "key-" + i);
-            FilterContext ctx = new FilterContext(req, null);
-            ctx.route(route);
-            applyFilter(ctx);
-            if ("gray-backend:8080".equals(ctx.effectiveUpstream())) {
-                grayCount++;
+    @Test
+    void jwtSubject_takesPriorityOverApiKey() throws Exception {
+        String sub = "user-jwt";
+        String key = apiKeyWithDifferentBucket(sub, 50);
+
+        boolean jwtOnly = isGray(context(sub, null, 50));
+        boolean keyOnly = isGray(context(null, key, 50));
+        boolean both = isGray(context(sub, key, 50));
+
+        assertNotEquals(jwtOnly, keyOnly, "test identities must fall on opposite sides");
+        assertEquals(jwtOnly, both, "JWT sub must win when both credentials are present");
+    }
+
+    private static String apiKeyWithDifferentBucket(String sub, double percent) {
+        boolean subGray = Math.floorMod(sub.hashCode(), 100) < percent;
+        for (int i = 0; ; i++) {
+            String key = "key-" + i;
+            boolean keyGray = Math.floorMod(ApiKeyHasher.hash(key).hashCode(), 100) < percent;
+            if (keyGray != subGray) {
+                return key;
             }
         }
-
-        double actual = (double) grayCount / total * 100;
-        assertTrue(
-                Math.abs(actual - percent) <= 5,
-                String.format("Expected ~%.0f%% gray, got %.1f%%", percent, actual));
-    }
-
-    // ---- JWT sub takes priority over API Key ----
-
-    @Test
-    void jwtSubTakesPriorityOverApiKey() throws Exception {
-        MockRequest req = new MockRequest();
-        req.headers.put("X-API-Key", "some-key");
-        FilterContext ctx = new FilterContext(req, null);
-        ctx.route(grayRoutePercentage(100));
-        ctx.claims(Map.of("sub", (Object) "user-jwt"));
-
-        applyFilter(ctx);
-        boolean withJwt = "gray-backend:8080".equals(ctx.effectiveUpstream());
-
-        MockRequest req2 = new MockRequest();
-        req2.headers.put("X-API-Key", "some-key");
-        FilterContext ctx2 = new FilterContext(req2, null);
-        ctx2.route(grayRoutePercentage(100));
-        ctx2.claims(Map.of("sub", (Object) "user-jwt"));
-
-        applyFilter(ctx2);
-        boolean withJwt2 = "gray-backend:8080".equals(ctx2.effectiveUpstream());
-
-        assertEquals(withJwt, withJwt2, "JWT sub should be the identity when both are present");
-    }
-
-    private boolean isGray(FilterContext ctx) throws Exception {
-        applyFilter(ctx);
-        return "gray-backend:8080".equals(ctx.effectiveUpstream());
     }
 }

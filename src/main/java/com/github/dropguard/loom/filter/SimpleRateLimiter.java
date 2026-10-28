@@ -59,12 +59,9 @@ public class SimpleRateLimiter {
         return bucket.tryAcquire(limit, windowMs);
     }
 
-    public int getLimit() {
-        return limit;
-    }
-
-    public long getWindowMs() {
-        return windowMs;
+    /** True when this limiter was built from the same limit/window as {@code config}. */
+    public boolean matches(RateLimitConfig config) {
+        return config != null && limit == config.limit() && windowMs == config.windowMs();
     }
 
     private static class Bucket {
@@ -78,10 +75,6 @@ public class SimpleRateLimiter {
                 windowStart = now;
             }
             return counter.incrementAndGet() <= limit;
-        }
-
-        long windowStart() {
-            return windowStart;
         }
     }
 }

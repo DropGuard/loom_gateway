@@ -35,8 +35,12 @@ class GatewayHttpIntegrationTest {
     // ---- Route matching ----
 
     @Test
-    void unmatchedRoute_returns404() {
-        RestAssured.given().get("/no/such/route").then().statusCode(404);
+    void unmatchedRoute_returns404WithTraceId() {
+        RestAssured.given()
+                .get("/no/such/route")
+                .then()
+                .statusCode(404)
+                .header("trace-id", matchesRegex("[0-9a-f]{32}"));
     }
 
     // ---- JWT Auth ----
@@ -79,24 +83,28 @@ class GatewayHttpIntegrationTest {
     }
 
     @Test
-    void jwtRoute_validToken_postAlsoWorks() throws Exception {
+    void jwtRoute_postBodyIsForwardedToUpstream() throws Exception {
         String token = buildJwt("user-1", false);
+        String body = "hello-body";
         RestAssured.given()
                 .header("Authorization", "Bearer " + token)
-                .post("/api/users/create")
+                .body(body)
+                .post("/api/echo")
                 .then()
-                .statusCode(200);
+                .statusCode(200)
+                .body("receivedBytes", equalTo(body.length()));
     }
 
     // ---- Public route (no auth) ----
 
     @Test
-    void publicRoute_noAuth_returns200() {
+    void publicRoute_returns200WithTraceId() {
         RestAssured.given()
                 .get("/api/public/data")
                 .then()
                 .statusCode(200)
-                .body("public", equalTo(true));
+                .body("public", equalTo(true))
+                .header("trace-id", matchesRegex("[0-9a-f]{32}"));
     }
 
     // ---- API Key Auth ----
@@ -122,7 +130,13 @@ class GatewayHttpIntegrationTest {
                 .get("/api/external/data")
                 .then()
                 .statusCode(200)
-                .body("external", equalTo(true));
+                .body("external", equalTo(true))
+                .body("apiKey", nullValue())
+                .body(
+                        "userId",
+                        equalTo(
+                                com.github.dropguard.loom.util.ApiKeyHasher.hash(
+                                        "pk-test-key-123")));
     }
 
     // ---- Method filtering ----
@@ -157,31 +171,13 @@ class GatewayHttpIntegrationTest {
                 .get("/api/users/list")
                 .then()
                 .statusCode(200)
-                .body("path", equalTo("/api/users/list"));
+                .body("query", equalTo("page=1&size=10"));
     }
 
     // ---- TraceId propagation (OpenTelemetry -> response header) ----
 
     @Test
-    void unmatchedRoute_responseCarriesTraceId() {
-        RestAssured.given()
-                .get("/no/such/route")
-                .then()
-                .statusCode(404)
-                .header("trace-id", matchesRegex("[0-9a-f]{32}"));
-    }
-
-    @Test
-    void successfulRoute_responseCarriesTraceId() {
-        RestAssured.given()
-                .get("/api/public/data")
-                .then()
-                .statusCode(200)
-                .header("trace-id", matchesRegex("[0-9a-f]{32}"));
-    }
-
-    @Test
-    void upstreamFailure_responseCarriesTraceId() {
+    void upstreamFailure_returns502WithTraceId() {
         // /api/fail/test hits a dead upstream → 502. The breaker is reset in
         // @AfterEach so this stays deterministic regardless of test order.
         RestAssured.given()
@@ -220,32 +216,38 @@ class GatewayHttpIntegrationTest {
                 .then()
                 .statusCode(200)
                 .body("status", equalTo("UP"))
-                .body("checks.find { it.name == 'gateway-ready' }.data.routes", greaterThan(0));
+                .body("checks.find { it.name == 'gateway-ready' }.data.routes", greaterThan(0))
+                .body(
+                        "checks.find { it.name == 'gateway-ready' }.data.configMissing",
+                        equalTo(false));
     }
 
     // ---- X-User-Id injection ----
 
     @Test
-    void jwtRoute_injectsUserIdHeader() throws Exception {
+    void jwtRoute_injectsIdentityAndStripsCredentials() throws Exception {
         String token = buildJwt("user-42", false);
         RestAssured.given()
                 .header("Authorization", "Bearer " + token)
                 .get("/api/users/me")
                 .then()
                 .statusCode(200)
-                .body("userId", equalTo("user-42"));
+                .body("userId", equalTo("user-42"))
+                .body("authorization", nullValue());
     }
 
     @Test
-    void jwtRoute_stripsForgedUserIdHeader() throws Exception {
+    void jwtRoute_stripsForgedIdentityHeaders() throws Exception {
         String token = buildJwt("real-user", false);
         RestAssured.given()
                 .header("Authorization", "Bearer " + token)
                 .header("X-User-Id", "forged-admin")
+                .header("X-Claim-role", "admin")
                 .get("/api/users/me")
                 .then()
                 .statusCode(200)
-                .body("userId", equalTo("real-user"));
+                .body("userId", equalTo("real-user"))
+                .body("claimRole", nullValue());
     }
 
     // ---- Rate limiting ----

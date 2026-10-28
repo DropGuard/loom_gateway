@@ -37,14 +37,26 @@ public class MockBackendResource implements QuarkusTestResourceLifecycleManager 
                                         JsonObject json =
                                                 new JsonObject()
                                                         .put("user", "test")
-                                                        .put("path", path);
+                                                        .put("path", path)
+                                                        .put("query", req.query())
+                                                        .put(
+                                                                "authorization",
+                                                                req.getHeader("Authorization"))
+                                                        .put(
+                                                                "claimRole",
+                                                                req.getHeader("X-Claim-role"));
                                         String userId = req.getHeader("X-User-Id");
                                         if (userId != null) json.put("userId", userId);
                                         json(req, json);
                                     } else if (path.startsWith("/api/public")) {
                                         json(req, new JsonObject().put("public", true));
                                     } else if (path.startsWith("/api/external")) {
-                                        json(req, new JsonObject().put("external", true));
+                                        json(
+                                                req,
+                                                new JsonObject()
+                                                        .put("external", true)
+                                                        .put("userId", req.getHeader("X-User-Id"))
+                                                        .put("apiKey", req.getHeader("X-API-Key")));
                                     } else if (path.startsWith("/api/echo")) {
                                         req.bodyHandler(
                                                 body -> {

@@ -45,15 +45,19 @@ public class RateLimitFilter implements Filter {
         }
 
         String routeId = context.route().id();
-        // Per-client buckets (DEFECT #8): one limiter per route (a bounded map),
-        // with one bucket per client identity inside it, so one client cannot
-        // exhaust the whole route. clientId is null for routes with no auth,
-        // which falls back to the route-wide bucket (key == routeId).
+        // Per-client buckets: one limiter per route (a bounded map), with one
+        // bucket per client identity inside it, so one client cannot exhaust the
+        // whole route. clientId is null for routes with no auth, which falls back
+        // to the route-wide bucket (key == routeId).
         String clientId = resolveClientId(context);
         String bucketKey = clientId != null ? clientId : routeId;
         SimpleRateLimiter limiter =
-                limiters.computeIfAbsent(
-                        routeId, k -> new SimpleRateLimiter(config, rateLimitMaxBuckets));
+                limiters.compute(
+                        routeId,
+                        (k, current) ->
+                                current != null && current.matches(config)
+                                        ? current
+                                        : new SimpleRateLimiter(config, rateLimitMaxBuckets));
 
         if (limiter.tryAcquire(bucketKey)) {
             next.run();
@@ -67,18 +71,22 @@ public class RateLimitFilter implements Filter {
     }
 
     /**
-     * Resolve a stable per-client identity for rate limiting. Priority: JWT "sub" claim > API key
-     * header > null (no identity, falls back to the route-wide bucket). Does NOT use raw client IP
-     * so we don't depend on X-Forwarded-For trust (a spoofable header).
+     * Resolve a stable per-client identity for rate limiting. Priority: JWT "sub" claim >
+     * authenticated API key > null (no identity, falls back to the route-wide bucket). Does NOT use
+     * raw client IP so we don't depend on X-Forwarded-For trust (a spoofable header), and ignores
+     * {@code X-API-Key} unless the route actually validated it — otherwise rotating the header
+     * would mint a fresh bucket per request.
      */
     private String resolveClientId(FilterContext context) {
         Map<String, Object> claims = context.claims();
         if (claims != null && claims.get("sub") != null) {
             return "sub:" + claims.get("sub");
         }
-        String apiKey = context.request().getHeader("X-API-Key");
-        if (apiKey != null && !apiKey.isEmpty()) {
-            return "key:" + Integer.toHexString(apiKey.hashCode());
+        if (context.hasValidatedApiKeyAuth()) {
+            String apiKey = context.request().getHeader("X-API-Key");
+            if (apiKey != null && !apiKey.isEmpty()) {
+                return "key:" + Integer.toHexString(apiKey.hashCode());
+            }
         }
         return null;
     }

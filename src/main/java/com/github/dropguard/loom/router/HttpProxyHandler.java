@@ -59,7 +59,7 @@ public class HttpProxyHandler {
                                 .setMaxPoolSize(500)
                                 .setKeepAlive(true)
                                 .setConnectTimeout(timeoutMs)
-                                // DEFECT: Vert.x idleTimeout defaults to SECONDS while
+                                // Vert.x idleTimeout defaults to SECONDS while
                                 // gateway.timeout is milliseconds. Expressing the unit explicitly
                                 // prevents a 500ms timeout from silently becoming a 500-second
                                 // idle timeout (~8 minutes of pinned idle connections).
@@ -106,9 +106,9 @@ public class HttpProxyHandler {
                             ? Duration.ofMillis(routeTimeout.timeoutMs())
                             : Duration.ofMillis(defaultTimeoutMs);
 
-            // DEFECT: an https:// upstream previously reached the server as plain
-            // HTTP (the shared client had no ssl flag, and ssl was never applied
-            // per-request). RequestOptions.setSsl carries the scheme end-to-end.
+            // Carry the scheme explicitly: the shared client has no per-upstream
+            // ssl flag, so an https:// upstream must set ssl per request or it
+            // would reach the server as plain HTTP.
             RequestOptions options =
                     new RequestOptions()
                             .setMethod(method)
@@ -121,7 +121,9 @@ public class HttpProxyHandler {
             ProxyHeaders.buildForwardHeaders(
                             incomingReq.headers().entries(),
                             filterContext.claims(),
-                            filterContext.filters().forwardClaims())
+                            filterContext.filters().forwardClaims(),
+                            filterContext.enforcedAuthType(),
+                            incomingReq.getHeader("X-API-Key"))
                     .forEach(backendReq.headers()::add);
 
             // Request body: prefer the body captured on the virtual thread by the

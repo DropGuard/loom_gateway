@@ -3,8 +3,8 @@
 # :19997, deliberate-failure :19998). This is the single file-based config all
 # @QuarkusTest integration tests load, via IntegrationTestProfile overriding
 # gateway.config.path. It is shaped by the test contracts it serves -- not a
-# copy of the production config. JWT secrets are literal (Jackson does not
-# resolve ${...} placeholders).
+# copy of the production config. Secrets are literal here; the loader expands
+# any ${ENV:default} placeholders before Jackson parses the file.
 routes:
   - id: api-users
     path: /api/users/**
@@ -21,6 +21,16 @@ routes:
       circuitBreaker:
         failureThreshold: 5
         resetTimeoutMs: 30000
+
+  - id: api-echo
+    path: /api/echo/**
+    methods: [POST]
+    upstream: localhost:19999
+    filters:
+      auth:
+        type: jwt
+        required: true
+        secret: "this-is-a-test-secret-key-that-is-at-least-32-chars!"
 
   - id: api-public
     path: /api/public/**

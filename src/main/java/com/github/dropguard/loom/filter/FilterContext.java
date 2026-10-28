@@ -63,6 +63,28 @@ public class FilterContext {
         return route != null ? route.filters() : FilterConfig.EMPTY;
     }
 
+    /**
+     * Normalized auth type when the matched route enforces authentication, otherwise {@code null}.
+     * A route with no auth block, {@code type: none}, or {@code required: false} does not
+     * authenticate and therefore must not have its credentials stripped.
+     */
+    public String enforcedAuthType() {
+        var auth = filters().auth();
+        if (auth == null || !auth.required() || auth.type() == null) {
+            return null;
+        }
+        return auth.type().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    /**
+     * True when the matched route actually validates an API key. Only then may {@code X-API-Key} be
+     * trusted as a client identity; on unauthenticated routes the header is client-controlled and
+     * rotating it must not create fresh rate-limit buckets or canary buckets.
+     */
+    public boolean hasValidatedApiKeyAuth() {
+        return "api-key".equals(enforcedAuthType());
+    }
+
     public Map<String, Object> claims() {
         return claims;
     }

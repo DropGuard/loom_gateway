@@ -8,8 +8,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Fixed-window rate limiter: locks the bucket-exhaustion boundary, the window-reset behavior, and
- * the lazy eviction path that keeps the bucket map bounded under many distinct keys (DEFECT #20
- * sibling).
+ * that many distinct keys stay correct as the backing bucket map grows.
  */
 class SimpleRateLimiterTest {
 
@@ -48,10 +47,9 @@ class SimpleRateLimiterTest {
     }
 
     @Test
-    void evictionTriggerPath_runsUnderManyDistinctKeys() {
-        // Drive more than EVICT_THRESHOLD (1024) distinct buckets to exercise
-        // the lazy eviction branch; no assertion on eviction itself, just that
-        // acquisition stays correct and does not throw.
+    void manyDistinctKeys_stayCorrect() {
+        // Drive far more buckets than the configured maximum to confirm that
+        // Caffeine eviction does not corrupt per-key acquisition.
         SimpleRateLimiter limiter = limiter(10, 60_000);
         for (int i = 0; i < 1100; i++) {
             String key = "client-" + i;
@@ -60,12 +58,5 @@ class SimpleRateLimiterTest {
             }
             assertFalse(limiter.tryAcquire(key));
         }
-    }
-
-    @Test
-    void exposesConfiguredLimitAndWindow() {
-        SimpleRateLimiter limiter = limiter(7, 5000);
-        assertEquals(7, limiter.getLimit());
-        assertEquals(5000, limiter.getWindowMs());
     }
 }

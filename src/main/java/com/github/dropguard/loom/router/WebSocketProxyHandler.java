@@ -67,10 +67,10 @@ public class WebSocketProxyHandler {
                         .setPort(port)
                         .setURI(uri)
                         .setSsl(ssl)
-                        // DEFECT: the upstream WebSocket connect previously had NO
-                        // timeout; a black-holed/unreachable upstream could pin the
-                        // client handshake (and the gateway's connection slot) for
-                        // as long as the OS TCP timeout. Reuse gateway.timeout.
+                        // Bound the upstream handshake: without an explicit timeout a
+                        // black-holed/unreachable upstream could pin the client handshake
+                        // (and the gateway's connection slot) for the OS TCP timeout.
+                        // Reuse gateway.timeout.
                         .setConnectTimeout(connectTimeoutMs);
 
         String subprotocol = context.request().getHeader("Sec-WebSocket-Protocol");
@@ -80,9 +80,25 @@ public class WebSocketProxyHandler {
             }
         }
 
+        String authType = filterContext.enforcedAuthType();
+        String identity =
+                ProxyHeaders.identityFor(
+                        filterContext.claims(), authType, context.request().getHeader("X-API-Key"));
+        if (identity != null) {
+            opts.addHeader("X-User-Id", identity);
+        }
+
         Map<String, Object> claims = filterContext.claims();
-        if (claims != null && claims.get("sub") != null) {
-            opts.addHeader("X-User-Id", claims.get("sub").toString());
+        if (claims != null) {
+            for (String claim : filterContext.filters().forwardClaims()) {
+                if ("sub".equalsIgnoreCase(claim)) {
+                    continue;
+                }
+                Object value = claims.get(claim);
+                if (value != null) {
+                    opts.addHeader("X-Claim-" + claim, value.toString());
+                }
+            }
         }
 
         String finalUri = uri;
