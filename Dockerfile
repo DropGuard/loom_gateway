@@ -2,10 +2,10 @@
 FROM maven:3.9-eclipse-temurin-25 AS builder
 WORKDIR /build
 
-COPY pom.xml settings.xml* ./
+COPY pom.xml ./
 COPY src ./src
 
-RUN mvn -B -s settings.xml clean package -DskipTests
+RUN mvn -B clean package -DskipTests
 
 # --- Stage 2: Runtime ---
 FROM eclipse-temurin:25-jre-alpine

@@ -114,7 +114,6 @@
 # Temporary files
 *.tmp
 *.temp
-*.bak
 *.backup
 *.cache
 **/.cache/
