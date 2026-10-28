@@ -4,13 +4,12 @@ quarkus:
     host: 0.0.0.0
     body:
       # Gateway proxies JSON APIs; file uploads are not handled upstream, so
-      # multipart handling is disabled (DEFECT review: keep attack surface minimal).
+      # multipart handling is disabled to keep the attack surface minimal.
       handle-file-uploads: false
     limits:
       max-body-size: 2M
-  # Graceful shutdown (DEFECT #19): let in-flight requests finish before the
-  # pod stops. Quarkus handles the shutdown sequence itself -- we only make the
-  # timeout explicit and auditable instead of relying on the 30s default.
+  # Graceful shutdown: let in-flight requests finish before the pod stops.
+  # Quarkus consumes quarkus.shutdown.timeout (not quarkus.http.shutdown.*).
   # MUST be <= Kubernetes terminationGracePeriodSeconds (default 30s) once this
   # is deployed, or the kubelet SIGKILLs the pod before Quarkus drains traffic.
   shutdown:

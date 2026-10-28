@@ -16,7 +16,7 @@ import org.jboss.logging.Logger;
  * <p>Config loading is owned by the {@link RouteConfigLoader} (a {@link RouteConfigProvider}),
  * which auto-loads on construction. This initializer only observes startup to log/validate.
  * Injecting the interface (not the concrete loader) is what lets tests supply a different config
- * source via CDI alternatives (DEFECT T1 fix).
+ * source via CDI alternatives.
  */
 @ApplicationScoped
 public class GatewayConfigInitializer {
@@ -28,7 +28,8 @@ public class GatewayConfigInitializer {
     void onStart(@Observes StartupEvent ev) {
         GatewayConfig config = routeConfigProvider.getConfig();
         if (config == null || config.routes() == null || config.routes().isEmpty()) {
-            // DEFECT #11: a missing/empty config must be loud.
+            // An empty route table must be loud: readiness stays DOWN and
+            // Kubernetes will never restart this pod on its own.
             LOG.errorf(
                     "CRITICAL: gateway started with NO routes (configMissing). Readiness will "
                             + "stay DOWN and Kubernetes will never restart this pod. Check gateway.config.path.");

@@ -142,11 +142,11 @@ class CircuitBreakerFilterTest {
     }
 
     /**
-     * Regression for DEFECT #7: a steady trickle of failures must NOT keep the breaker stuck OPEN
-     * forever. The OPEN timer is armed only on the CLOSED -> OPEN transition, so even if failures
-     * keep arriving while OPEN, the HALF_OPEN deadline is still reached and traffic is allowed
-     * again. Uses a dedicated breaker instance + routeId so it cannot interfere with the shared
-     * "r1" breaker used by the other tests.
+     * Regression: a steady trickle of failures must NOT keep the breaker stuck OPEN forever. The
+     * OPEN timer is armed only on the CLOSED -> OPEN transition, so even if failures keep arriving
+     * while OPEN, the HALF_OPEN deadline is still reached and traffic is allowed again. Uses a
+     * dedicated breaker instance + routeId so it cannot interfere with the shared "r1" breaker used
+     * by the other tests.
      */
     @Test
     void breakerRecoversFromSustainedLowRateFailures() throws Exception {

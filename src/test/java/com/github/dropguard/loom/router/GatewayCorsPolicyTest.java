@@ -7,10 +7,10 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
- * Locks the gateway-owned CORS contract -- the logic behind the previously broken CORS behavior
- * (framework quarkus.http.cors does not apply to @Route reactive routes). Covers origin allow-list
- * matching, preflight detection, header construction, and the critical rule that an unmatched
- * origin is never echoed back. No Mockito dependency (offline); the policy is Vert.x-free.
+ * Locks the gateway-owned CORS contract: {@code quarkus.http.cors} does not apply to {@code @Route}
+ * reactive routes, so the gateway builds these headers itself. Covers origin allow-list matching,
+ * preflight detection, header construction, and the rule that an unmatched origin is never echoed
+ * back. No Mockito dependency (offline); the policy is Vert.x-free.
  */
 class GatewayCorsPolicyTest {
 

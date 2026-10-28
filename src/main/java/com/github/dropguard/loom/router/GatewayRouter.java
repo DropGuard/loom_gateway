@@ -161,10 +161,9 @@ public class GatewayRouter {
                             context.request().path(), context.request().method().toString());
             if (matchedRoute == null) {
                 statusCode = 404;
-                // DEFECT: a CORS browser request that hits a missing route must
-                // still receive the CORS headers, or the browser blocks the
-                // (perfectly useful) 404 body. Attach the headers before writing
-                // the error response.
+                // A CORS browser request that hits a missing route must still
+                // receive the CORS headers, or the browser blocks the 404 body.
+                // Attach the headers before writing the error response.
                 if (corsPolicy.isCorsRequest(corsOrigin)) {
                     corsPolicy.buildHeaders(corsOrigin).forEach(context.response()::putHeader);
                 }
@@ -184,11 +183,10 @@ public class GatewayRouter {
             FilterContext filterContext = new FilterContext(context.request(), context.response());
             filterContext.route(matchedRoute);
 
-            // DEFECT: POST/PUT request bodies were lost because Vert.x only
-            // buffers the body when a body handler is registered; reactive
-            // filter chains never consumed it, so the proxy forwarded an empty
-            // body. This virtual thread blocks on body() and hands the bytes to
-            // the proxy via FilterContext.
+            // Vert.x only buffers the body when a body handler is registered, and
+            // the reactive filter chain never consumes it. Read it explicitly on
+            // this virtual thread and hand the bytes to the proxy via
+            // FilterContext, otherwise POST/PUT bodies would be forwarded empty.
             Buffer body = readRequestBody(context);
             if (body != null) {
                 filterContext.requestBody(body.getBytes());

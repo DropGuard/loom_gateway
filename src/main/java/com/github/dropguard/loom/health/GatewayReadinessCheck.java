@@ -20,8 +20,8 @@ public class GatewayReadinessCheck implements HealthCheck {
     public HealthCheckResponse call() {
         GatewayConfig config = routeConfigProvider.getConfig();
         boolean hasRoutes = config.routes() != null && !config.routes().isEmpty();
-        // DEFECT #11: surface a distinct signal so alerting can tell
-        // "loaded routes but unhealthy" apart from "config never loaded".
+        // Expose configMissing separately so alerting can distinguish
+        // "loaded routes but unhealthy" from "config never loaded".
         boolean configMissing = config.routes() == null || config.routes().isEmpty();
         return HealthCheckResponse.builder()
                 .name("gateway-ready")

@@ -82,7 +82,7 @@ public class SimpleCircuitBreaker {
         if (state == CircuitState.HALF_OPEN) {
             // A probe failed: back to OPEN and restart the timer. Restarting
             // (rather than updating on every failure) avoids a steady trickle of
-            // failures keeping the breaker OPEN forever. (DEFECT #7)
+            // failures keeping the breaker OPEN forever.
             state = CircuitState.OPEN;
             lastFailureTime = System.currentTimeMillis();
             LOG.debug("Circuit breaker transitioning back to OPEN after probe failure");

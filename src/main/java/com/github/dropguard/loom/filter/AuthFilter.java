@@ -67,9 +67,9 @@ public class AuthFilter implements Filter {
         HttpServerRequest request = context.request();
         String authHeader = request.getHeader("Authorization");
 
-        // DEFECT: RFC 6750 defines the scheme as case-insensitive ("bearer"/"Bearer"/
-        // "BEARER" are all valid). startsWith("Bearer ") rejected mixed-case schemes
-        // sent by standards-compliant clients.
+        // RFC 6750 defines the scheme as case-insensitive ("bearer"/"Bearer"/
+        // "BEARER" are all valid), so compare with regionMatches(true, ...)
+        // rather than a case-sensitive startsWith("Bearer ").
         if (authHeader == null
                 || authHeader.length() < 7
                 || !authHeader.regionMatches(true, 0, "Bearer ", 0, 7)) {
