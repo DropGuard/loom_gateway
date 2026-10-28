@@ -55,9 +55,6 @@ class CacheFilterTest {
                                     };
                                 });
 
-        // Instance wrapper for CircuitBreakerRegistry (nullable in this test's
-        // cache-hit path; the registry is only touched on cache hits with a
-        // breaker-configured route).
         Instance<CircuitBreakerRegistry> breakerInstance =
                 (Instance<CircuitBreakerRegistry>)
                         java.lang.reflect.Proxy.newProxyInstance(
@@ -93,139 +90,6 @@ class CacheFilterTest {
                 FilterConfig.builder().cache(cacheConfig).build());
     }
 
-    @Test
-    void testCacheHitReturnsCachedResponse() throws Exception {
-        // Pre-populate cache
-        cache.put(
-                "GET:/api/data|up=localhost:8080",
-                200,
-                "application/json",
-                "{\"cached\":true}".getBytes(),
-                60);
-
-        context.route(routeWithCache(new CacheConfig(true, 60)));
-
-        assertFalse(applyAndCheckNext(context)); // next.run() should NOT be called
-        assertEquals(200, response.statusCode);
-        assertEquals("{\"cached\":true}", response.body);
-        assertTrue(response.ended);
-    }
-
-    @Test
-    void testCacheMissCallsNext() throws Exception {
-        context.route(routeWithCache(new CacheConfig(true, 60)));
-
-        assertTrue(applyAndCheckNext(context)); // next.run() SHOULD be called
-        assertFalse(response.ended); // response should not be ended yet
-    }
-
-    @Test
-    void testNonGetSkipsCache() throws Exception {
-        // Pre-populate cache
-        cache.put("POST:/api/data", 200, "application/json", "{\"cached\":true}".getBytes(), 60);
-
-        request.method = io.vertx.core.http.HttpMethod.POST;
-        context.route(routeWithCache(new CacheConfig(true, 60)));
-
-        assertTrue(applyAndCheckNext(context)); // next.run() SHOULD be called (cache skipped)
-    }
-
-    @Test
-    void testCacheDisabledSkipsCache() throws Exception {
-        // Pre-populate cache
-        cache.put("GET:/api/data", 200, "application/json", "{\"cached\":true}".getBytes(), 60);
-
-        context.route(routeWithCache(new CacheConfig(false, 60)));
-
-        assertTrue(applyAndCheckNext(context)); // next.run() SHOULD be called (cache disabled)
-    }
-
-    @Test
-    void testCacheKeyWithJwtIdentity() throws Exception {
-        // Pre-populate cache with user-specific key
-        cache.put(
-                "GET:/api/data|up=localhost:8080:user-1",
-                200,
-                "application/json",
-                "{\"user\":\"user-1\"}".getBytes(),
-                60);
-
-        context.route(routeWithCache(new CacheConfig(true, 60)));
-        context.claims(Map.of("sub", "user-1"));
-
-        assertFalse(applyAndCheckNext(context)); // cache hit
-        assertEquals("{\"user\":\"user-1\"}", response.body);
-    }
-
-    @Test
-    void testCacheKeyDifferentiatesUsers() throws Exception {
-        // Pre-populate cache for user-1 only
-        cache.put(
-                "GET:/api/data:user-1",
-                200,
-                "application/json",
-                "{\"user\":\"user-1\"}".getBytes(),
-                60);
-
-        context.route(routeWithCache(new CacheConfig(true, 60)));
-        context.claims(Map.of("sub", "user-2")); // different user
-
-        assertTrue(applyAndCheckNext(context)); // cache miss for user-2
-    }
-
-    // --- DEFECT #12: authenticated routes must not let an anonymous response
-    // pollute an authenticated caller, and vice versa. ---
-
-    @Test
-    void anonResponseDoesNotPolluteAuthenticatedCaller_onAuthRoute() throws Exception {
-        // A public ("please log in") body was cached under the :anon key.
-        cache.put(
-                "GET:/api/data:anon", 200, "application/json", "{\"public\":true}".getBytes(), 60);
-
-        // An authenticated user arrives on the SAME uri.
-        RouteConfig authRoute = routeWithAuthCache(new CacheConfig(true, 60), "jwt");
-        context.route(authRoute);
-        context.claims(Map.of("sub", "user-1"));
-
-        // Must be a cache MISS — must NOT serve the anonymous body.
-        assertTrue(applyAndCheckNext(context));
-        assertNotEquals("{\"public\":true}", response.body);
-    }
-
-    @Test
-    void anonymousCallerHitsAnonPartition_onAuthRoute() throws Exception {
-        cache.put(
-                "GET:/api/data|up=localhost:8080:anon",
-                200,
-                "application/json",
-                "{\"public\":true}".getBytes(),
-                60);
-
-        // No claims, route supports auth -> key should be :anon -> cache HIT.
-        context.route(routeWithAuthCache(new CacheConfig(true, 60), "jwt"));
-
-        assertFalse(applyAndCheckNext(context));
-        assertEquals("{\"public\":true}", response.body);
-        // Vary header signals the representation varies by auth.
-        assertEquals("Authorization", response.headers().get("Vary"));
-    }
-
-    @Test
-    void noAuthRouteStillSharesPlainKey() throws Exception {
-        // A route with NO auth config: anonymous responses are safe to share.
-        cache.put(
-                "GET:/api/data|up=localhost:8080",
-                200,
-                "application/json",
-                "{\"shared\":true}".getBytes(),
-                60);
-
-        context.route(routeWithCache(new CacheConfig(true, 60))); // auth == null
-
-        assertFalse(applyAndCheckNext(context));
-        assertEquals("{\"shared\":true}", response.body);
-    }
-
     private RouteConfig routeWithAuthCache(CacheConfig cacheConfig, String authType) {
         AuthConfig auth = new AuthConfig(authType, true, "secret", null);
         return new RouteConfig(
@@ -236,67 +100,150 @@ class CacheFilterTest {
                 FilterConfig.builder().auth(auth).cache(cacheConfig).build());
     }
 
+    private FilterContext contextWithSubject(String sub) {
+        FilterContext ctx = new FilterContext(new MockRequest(), new MockResponse());
+        ctx.route(routeWithAuthCache(new CacheConfig(true, 60), "jwt"));
+        ctx.claims(Map.of("sub", sub));
+        return ctx;
+    }
+
+    private static String authenticatedKey(String sub) {
+        return "GET:/api/data|up=localhost:8080:" + sub;
+    }
+
     @Test
-    void testVaryHeader_isAuthorization_forJwtRoute() throws Exception {
-        RouteConfig route =
-                new RouteConfig(
-                        "r-jwt",
-                        "/**",
-                        null,
-                        "localhost:8080",
-                        FilterConfig.builder()
-                                .auth(new RouteConfig.AuthConfig("jwt", true, "secret", null))
-                                .cache(new RouteConfig.CacheConfig(true, 60))
-                                .build());
-        context.route(route);
-        context.claims(Map.of("sub", "user123"));
+    void cacheHit_servesCachedBodyWithoutCallingNext() throws Exception {
+        cache.put(
+                "GET:/api/data|up=localhost:8080",
+                200,
+                "application/json",
+                "{\"cached\":true}".getBytes(),
+                60);
 
-        CacheEntry entry = new CacheEntry(200, "application/json", new byte[0], 0L);
-        filter.writeCachedResponse(context, entry);
+        context.route(routeWithCache(new CacheConfig(true, 60)));
 
+        assertFalse(applyAndCheckNext(context));
+        assertEquals(200, response.statusCode);
+        assertEquals("{\"cached\":true}", response.body);
+        assertTrue(response.ended);
+        assertNull(response.headers().get("Vary"), "unauthenticated routes never vary by auth");
+    }
+
+    @Test
+    void cacheMiss_callsNextAndSetsVary() throws Exception {
+        context.route(routeWithAuthCache(new CacheConfig(true, 60), "jwt"));
+        context.claims(Map.of("sub", "user1"));
+
+        assertTrue(applyAndCheckNext(context), "expected a cache miss");
+        assertFalse(response.ended);
         assertEquals("Authorization", response.headers().get("Vary"));
     }
 
     @Test
-    void testVaryHeader_isXApiKey_forApiKeyRoute() throws Exception {
-        RouteConfig route =
-                new RouteConfig(
-                        "r-apikey",
-                        "/**",
-                        null,
-                        "localhost:8080",
-                        FilterConfig.builder()
-                                .auth(
-                                        new RouteConfig.AuthConfig(
-                                                "api-key", true, null, List.of("key1")))
-                                .cache(new RouteConfig.CacheConfig(true, 60))
-                                .build());
-        context.route(route);
-        request.headers.put("X-API-Key", "key1");
+    void nonGetRequest_skipsCache() throws Exception {
+        request.method = io.vertx.core.http.HttpMethod.POST;
+        context.route(routeWithCache(new CacheConfig(true, 60)));
 
-        CacheEntry entry = new CacheEntry(200, "application/json", new byte[0], 0L);
-        filter.writeCachedResponse(context, entry);
-
-        assertEquals("X-API-Key", response.headers().get("Vary"));
+        assertTrue(applyAndCheckNext(context));
     }
 
     @Test
-    void testVaryHeader_notSet_forNoAuthRoute() throws Exception {
-        RouteConfig route =
+    void disabledCache_skipsCache() throws Exception {
+        context.route(routeWithCache(new CacheConfig(false, 60)));
+
+        assertTrue(applyAndCheckNext(context));
+    }
+
+    @Test
+    void jwtSubject_partitionsCache() throws Exception {
+        cache.put(
+                authenticatedKey("user-1"),
+                200,
+                "application/json",
+                "{\"user\":\"user-1\"}".getBytes(),
+                60);
+        cache.put(
+                authenticatedKey("user-2"),
+                200,
+                "application/json",
+                "{\"user\":\"user-2\"}".getBytes(),
+                60);
+
+        FilterContext user1 = contextWithSubject("user-1");
+        assertFalse(applyAndCheckNext(user1));
+        assertEquals("{\"user\":\"user-1\"}", ((MockResponse) user1.response()).body);
+
+        FilterContext user2 = contextWithSubject("user-2");
+        assertFalse(applyAndCheckNext(user2));
+        assertEquals("{\"user\":\"user-2\"}", ((MockResponse) user2.response()).body);
+    }
+
+    @Test
+    void anonymousAndAuthenticated_useSeparatePartitions() throws Exception {
+        cache.put(
+                "GET:/api/data|up=localhost:8080:anon",
+                200,
+                "application/json",
+                "{\"public\":true}".getBytes(),
+                60);
+        cache.put(
+                authenticatedKey("user-1"),
+                200,
+                "application/json",
+                "{\"user\":\"user-1\"}".getBytes(),
+                60);
+
+        FilterContext authenticated = contextWithSubject("user-1");
+        assertFalse(applyAndCheckNext(authenticated));
+        assertEquals("{\"user\":\"user-1\"}", ((MockResponse) authenticated.response()).body);
+
+        FilterContext anonymous = new FilterContext(new MockRequest(), new MockResponse());
+        anonymous.route(routeWithAuthCache(new CacheConfig(true, 60), "jwt"));
+        assertFalse(applyAndCheckNext(anonymous));
+        MockResponse anonymousResponse = (MockResponse) anonymous.response();
+        assertEquals("{\"public\":true}", anonymousResponse.body);
+        assertEquals("Authorization", anonymousResponse.headers().get("Vary"));
+    }
+
+    @Test
+    void varyHeader_namesAuthHeader_forAuthenticatedRoutes() {
+        CacheEntry entry = new CacheEntry(200, "application/json", new byte[0], 0L);
+
+        for (String authType : List.of("jwt", "api-key")) {
+            MockResponse resp = new MockResponse();
+            FilterContext ctx = new FilterContext(new MockRequest(), resp);
+            ctx.route(routeWithAuthCache(new CacheConfig(true, 60), authType));
+
+            filter.writeCachedResponse(ctx, entry);
+
+            String expected = "api-key".equals(authType) ? "X-API-Key" : "Authorization";
+            assertEquals(expected, resp.headers().get("Vary"), authType);
+        }
+    }
+
+    @Test
+    void authTypeNone_isTreatedAsAnonymous() throws Exception {
+        // `type: none` declares the route as public; it must not produce a Vary
+        // header nor an :anon cache partition.
+        cache.put(
+                "GET:/api/data|up=localhost:8080",
+                200,
+                "application/json",
+                "{\"public\":true}".getBytes(),
+                60);
+
+        context.route(
                 new RouteConfig(
-                        "r-noauth",
+                        "r-none",
                         "/**",
                         null,
                         "localhost:8080",
                         FilterConfig.builder()
-                                .cache(new RouteConfig.CacheConfig(true, 60))
-                                .build());
-        context.route(route);
-        // No auth config, no identity needed
+                                .auth(new AuthConfig("none", false, null, null))
+                                .cache(new CacheConfig(true, 60))
+                                .build()));
 
-        CacheEntry entry = new CacheEntry(200, "application/json", new byte[0], 0L);
-        filter.writeCachedResponse(context, entry);
-
+        assertFalse(applyAndCheckNext(context), "public route must share the bare cache key");
         assertNull(response.headers().get("Vary"));
     }
 }

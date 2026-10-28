@@ -19,12 +19,30 @@ import org.jboss.logging.Logger;
 public class LocalCacheManager {
 
     private static final Logger LOG = Logger.getLogger(LocalCacheManager.class);
+
+    /** Total payload budget, not an entry count: 10k x 1MB entries would not fit a 256MB heap. */
+    private static final long DEFAULT_MAX_WEIGHT_BYTES = 64L * 1024 * 1024;
+
+    private static final int ENTRY_OVERHEAD_BYTES = 256;
+
     private final Cache<String, CacheEntry> cache;
 
     public LocalCacheManager() {
+        this(DEFAULT_MAX_WEIGHT_BYTES);
+    }
+
+    LocalCacheManager(long maxWeightBytes) {
         this.cache =
                 Caffeine.newBuilder()
-                        .maximumSize(10_000)
+                        .maximumWeight(Math.max(1, maxWeightBytes))
+                        .weigher(
+                                (String key, CacheEntry entry) -> {
+                                    long weight =
+                                            (long) entry.body().length
+                                                    + (long) key.length() * 2
+                                                    + ENTRY_OVERHEAD_BYTES;
+                                    return (int) Math.min(Integer.MAX_VALUE, weight);
+                                })
                         .executor(Runnable::run)
                         .expireAfter(
                                 new Expiry<String, CacheEntry>() {
@@ -53,8 +71,10 @@ public class LocalCacheManager {
                                     }
                                 })
                         .build();
-        LOG.info(
-                "LocalCacheManager initialized (max entries: 10000, W-TinyLFU eviction, per-key TTL)");
+        LOG.infof(
+                "LocalCacheManager initialized (max weight: %d bytes, W-TinyLFU eviction, "
+                        + "per-key TTL)",
+                maxWeightBytes);
     }
 
     public CacheEntry get(String key) {

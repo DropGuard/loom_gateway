@@ -57,4 +57,26 @@ class LocalCacheManagerTest {
         cache.clear();
         assertTrue(cache.asMap().isEmpty());
     }
+
+    @Test
+    void testWeightBound_evictsWhenPayloadBudgetExceeded() {
+        // 1 MiB budget: four 512 KiB entries (~2 MiB) must not all be retained.
+        LocalCacheManager bounded = new LocalCacheManager(1024 * 1024);
+        byte[] halfMeg = new byte[512 * 1024];
+        for (int i = 0; i < 4; i++) {
+            bounded.put("k" + i, 200, "application/octet-stream", halfMeg, 60);
+        }
+
+        assertTrue(
+                bounded.asMap().size() <= 2,
+                "weighted cache must evict instead of retaining ~2 MiB in a 1 MiB budget");
+    }
+
+    @Test
+    void testEntryLargerThanBudget_isNotCached() {
+        LocalCacheManager bounded = new LocalCacheManager(1024 * 1024);
+        bounded.put("too-big", 200, "application/octet-stream", new byte[2 * 1024 * 1024], 60);
+
+        assertNull(bounded.get("too-big"));
+    }
 }

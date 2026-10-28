@@ -61,6 +61,13 @@ public class CacheFilter implements Filter {
         String cacheKey = buildKey(context);
         CacheEntry entry = cache.get(cacheKey);
 
+        // Set Vary before either path writes the response. On a cache miss the
+        // first response is the one a CDN will store, so it needs Vary just as
+        // much as a cache hit does.
+        if (routeAuthenticates(context)) {
+            context.response().headers().set("Vary", varyHeaderFor(context));
+        }
+
         if (entry != null) {
             LOG.debugf("Cache hit for '%s'", cacheKey);
             if (metrics != null) metrics.recordCacheHit();
@@ -122,14 +129,17 @@ public class CacheFilter implements Filter {
         // anonymous responses either. The Vary header must name the header the
         // gateway actually keys on: Authorization for JWT routes, X-API-Key for
         // api-key routes.
-        String authType = context.filters().auth() != null ? context.filters().auth().type() : null;
-        if (authType != null) {
-            String varyHeader =
-                    "api-key".equalsIgnoreCase(authType) ? "X-API-Key" : "Authorization";
-            context.response().headers().set("Vary", varyHeader);
+        if (routeAuthenticates(context)) {
+            context.response().headers().set("Vary", varyHeaderFor(context));
         }
         context.response().end(io.vertx.core.buffer.Buffer.buffer(entry.body()));
         LOG.debugf("Served cached response (%d bytes)", entry.body().length);
+    }
+
+    private static String varyHeaderFor(FilterContext context) {
+        return "api-key".equalsIgnoreCase(context.filters().auth().type())
+                ? "X-API-Key"
+                : "Authorization";
     }
 
     /**
@@ -164,13 +174,24 @@ public class CacheFilter implements Filter {
         }
         // A route that *can* authenticate must not let an unauthenticated
         // response be served to an authenticated caller (and vice versa). Only
-        // routes with NO auth config at all are safe to share under a bare
+        // routes with NO effective authentication are safe to share under a bare
         // method:uri key. Otherwise tag the key as anonymous so it is partitioned
         // away from authenticated entries.
-        boolean routeCanAuthenticate = context.filters().auth() != null;
+        boolean routeCanAuthenticate = routeAuthenticates(context);
         return routeCanAuthenticate
                 ? method + ":" + uri + upstreamTag + ":anon"
                 : method + ":" + uri + upstreamTag;
+    }
+
+    /**
+     * True only when the route actually enforces an authentication scheme. An {@code auth} block
+     * with {@code type: none} or {@code required: false} is configuration metadata, not
+     * authentication: it populates neither claims nor a validated API key, so the cache must treat
+     * such requests as anonymous.
+     */
+    private static boolean routeAuthenticates(FilterContext context) {
+        String type = context.enforcedAuthType();
+        return "jwt".equals(type) || "api-key".equals(type);
     }
 
     private String getUserIdentity(FilterContext context) {
@@ -180,9 +201,11 @@ public class CacheFilter implements Filter {
             return claims.get("sub").toString();
         }
 
-        // API Key auth: hash the key to avoid leaking it in cache
-        String authType = context.filters().auth() != null ? context.filters().auth().type() : null;
-        if ("api-key".equalsIgnoreCase(authType)) {
+        // API Key auth: hash the key to avoid leaking it in cache. Only a route
+        // that actually validates the key may use it as an identity; otherwise
+        // any client could partition the cache by sending arbitrary headers.
+        if (routeAuthenticates(context)
+                && "api-key".equalsIgnoreCase(context.filters().auth().type())) {
             String apiKey = context.request().getHeader("X-API-Key");
             if (apiKey != null && !apiKey.isEmpty()) {
                 return ApiKeyHasher.hash(apiKey);
