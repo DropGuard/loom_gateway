@@ -66,18 +66,18 @@ class RouteConfigLoaderTest {
     }
 
     @Test
-    void testPathPatternMatching_nullMethods() {
-        applyRoutes(List.of(new RouteConfig("catch-all", "/**", null, "backend:8080", null)));
+    void noMethodRestriction_matchesAnyMethod() {
+        for (List<String> methods : java.util.Arrays.<List<String>>asList(null, List.of())) {
+            RouteConfigLoader fresh = new RouteConfigLoader();
+            fresh.applyNewConfig(
+                    new GatewayConfig(
+                            List.of(
+                                    new RouteConfig(
+                                            "catch-all", "/**", methods, "backend:8080", null))));
 
-        assertNotNull(loader.findMatchingRoute("/anything/goes", "GET"));
-        assertNotNull(loader.findMatchingRoute("/anything/goes", "POST"));
-    }
-
-    @Test
-    void testPathPatternMatching_emptyMethods() {
-        applyRoutes(List.of(new RouteConfig("catch-all", "/**", List.of(), "backend:8080", null)));
-
-        assertNotNull(loader.findMatchingRoute("/anything/goes", "GET"));
+            assertNotNull(fresh.findMatchingRoute("/anything/goes", "GET"), "methods=" + methods);
+            assertNotNull(fresh.findMatchingRoute("/anything/goes", "POST"), "methods=" + methods);
+        }
     }
 
     @Test

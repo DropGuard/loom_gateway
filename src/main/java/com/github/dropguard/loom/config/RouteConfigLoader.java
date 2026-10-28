@@ -6,6 +6,7 @@ import com.github.dropguard.loom.exception.ConfigException;
 import com.github.dropguard.loom.model.GatewayConfig;
 import com.github.dropguard.loom.model.RouteConfig;
 import com.github.dropguard.loom.model.RouteConfig.AuthConfig;
+import com.github.dropguard.loom.model.RouteConfig.RateLimitConfig;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -92,24 +93,22 @@ public class RouteConfigLoader implements RouteConfigProvider {
         Path configFile = Paths.get(path);
 
         if (!Files.exists(configFile)) {
-            // DEFECT #11: a missing critical config must be loud. The gateway
-            // would otherwise start with EMPTY routes, report readiness DOWN
-            // forever while liveness stays UP, and serve 404s with no restart.
-            LOG.errorf(
-                    "CRITICAL: Configuration file not found: %s. Gateway will start with "
-                            + "NO routes (readiness DOWN). Fix the path or the file, or Kubernetes "
-                            + "will never restart this pod.",
-                    path);
-            return;
+            throw new ConfigException(
+                    "Configuration file not found: "
+                            + path
+                            + ". Set gateway.config.path or mount routes.yaml before startup.");
         }
 
         try {
             GatewayConfig newConfig = readConfig(configFile);
-            applyNewConfig(newConfig);
-            startWatching(configFile);
+            if (!applyNewConfig(newConfig)) {
+                throw new ConfigException("Initial configuration was rejected: " + path);
+            }
         } catch (IOException e) {
-            LOG.errorf(e, "Failed to load configuration from: %s", path);
+            throw new ConfigException("Failed to load configuration from: " + path, e);
         }
+
+        startWatching(configFile);
     }
 
     /**
@@ -141,6 +140,8 @@ public class RouteConfigLoader implements RouteConfigProvider {
                                     Thread.currentThread().interrupt();
                                     LOG.info("Config watcher thread interrupted");
                                     return;
+                                } catch (Exception e) {
+                                    LOG.errorf(e, "Config watcher iteration failed; continuing");
                                 }
                             }
                         });
@@ -158,14 +159,18 @@ public class RouteConfigLoader implements RouteConfigProvider {
     private GatewayConfig readConfig(Path configFile) throws IOException {
         String raw = Files.readString(configFile);
         String resolved = resolvePlaceholders(raw);
-        return yamlMapper.readValue(resolved, GatewayConfig.class);
+        GatewayConfig parsed = yamlMapper.readValue(resolved, GatewayConfig.class);
+        if (parsed == null) {
+            throw new ConfigException("Configuration file is empty: " + configFile);
+        }
+        return parsed;
     }
 
     /**
      * Replaces every {@code ${NAME:default}} occurrence with the environment variable {@code NAME}
      * when set, otherwise with {@code default} (empty string when the default is absent). Unknown
-     * variables without a default resolve to an empty string so a missing secret fails loudly at
-     * auth time (401/500) instead of silently using the literal placeholder as the key.
+     * variables without a default resolve to an empty string, which {@link #validateAuthConfig}
+     * rejects when the value is required.
      */
     static String resolvePlaceholders(String input) {
         if (input == null || input.isEmpty()) {
@@ -183,6 +188,27 @@ public class RouteConfigLoader implements RouteConfigProvider {
         }
         matcher.appendTail(sb);
         return sb.toString();
+    }
+
+    private void validateRoute(RouteConfig route) {
+        if (route == null) {
+            throw new ConfigException("Route entry must not be null");
+        }
+        if (route.id() == null || route.id().isBlank()) {
+            throw new ConfigException("Route id must not be empty");
+        }
+        if (route.path() == null || route.path().isBlank()) {
+            throw new ConfigException("Route '" + route.id() + "' path must not be empty");
+        }
+        if (route.upstream() == null || route.upstream().isBlank()) {
+            throw new ConfigException("Route '" + route.id() + "' upstream must not be empty");
+        }
+        RateLimitConfig rateLimit = route.filters().rateLimit();
+        // limit <= 0 disables rate limiting; otherwise a non-positive window
+        // would reset the bucket on every request and silently allow everything.
+        if (rateLimit != null && rateLimit.limit() > 0 && rateLimit.windowMs() <= 0) {
+            throw new ConfigException("Route '" + route.id() + "' rateLimit.windowMs must be > 0");
+        }
     }
 
     private void validateAuthConfig(RouteConfig route) {
@@ -212,21 +238,29 @@ public class RouteConfigLoader implements RouteConfigProvider {
         }
     }
 
-    private void reloadConfig(Path configFile) {
+    void reloadConfig(Path configFile) {
         try {
             GatewayConfig newConfig = readConfig(configFile);
-            applyNewConfig(newConfig);
-            reloadEvent.fire(new RouteConfigReloadedEvent(newConfig));
-        } catch (IOException e) {
+            if (!applyNewConfig(newConfig)) {
+                LOG.errorf("Reload rejected; keeping current configuration");
+                return;
+            }
+            if (reloadEvent != null) {
+                reloadEvent.fire(new RouteConfigReloadedEvent(newConfig));
+            }
+        } catch (Exception e) {
+            // A bad hot reload must never kill the watcher thread: keep serving
+            // the last known-good configuration until the file is fixed.
             LOG.errorf(e, "Failed to reload configuration, keeping current config");
         }
     }
 
-    void applyNewConfig(GatewayConfig newConfig) {
+    boolean applyNewConfig(GatewayConfig newConfig) {
         Map<String, Pattern> newPatterns = new ConcurrentHashMap<>();
         Set<String> seenIds = new HashSet<>();
         if (newConfig.routes() != null) {
             for (RouteConfig route : newConfig.routes()) {
+                validateRoute(route);
                 // Duplicate route ids silently overwrite the compiled pattern and
                 // make the first route unreachable; reject the whole update and
                 // keep the current config instead.
@@ -234,7 +268,7 @@ public class RouteConfigLoader implements RouteConfigProvider {
                     LOG.errorf(
                             "Duplicate route id '%s' in configuration; keeping current config",
                             route.id());
-                    return;
+                    return false;
                 }
                 // Validate auth config (fail‑fast)
                 validateAuthConfig(route);
@@ -246,6 +280,7 @@ public class RouteConfigLoader implements RouteConfigProvider {
         LOG.infof(
                 "Applied configuration with %d routes",
                 newConfig.routes() != null ? newConfig.routes().size() : 0);
+        return true;
     }
 
     /**
